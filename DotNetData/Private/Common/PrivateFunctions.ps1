@@ -414,14 +414,10 @@ function Get-CredentialForUserName {
             "in $($CallStackFrame.FunctionName) at $($CallStackFrame.ScriptName): $($CallStackFrame.ScriptLineNumber)"
          )
          Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::InvalidArgument) -CategoryReason 'Null password' -CategoryActivity $($MyInvocation.MyCommand.Name) -CategoryTargetName $credFilePath -CategoryTargetType 'Password File'
-         Write-Warning -Message 'Properties of [Management.Automation.PSCredential] object:'
-         $obj.psobject.Properties.Name | % {
-            Write-Warning -Message "   ${_}"
-         }
       }
 
-   }
-   else {
+   } # if ($exists)
+   else { # -not $exists
    # Error Message with location of calling statement
       [string[]] $msgs = @(
          "$($MyInvocation.MyCommand.Name): Missing password file `"${credFilePath}`""
@@ -430,6 +426,6 @@ function Get-CredentialForUserName {
       )
       [String] $activity = 'Get-CredentialForUserName'
       Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::ObjectNotFound) -CategoryReason 'Missing password file' -CategoryActivity $activity -CategoryTargetName $credFilePath -CategoryTargetType 'Password File'
-   }
+   } # else (-not $exists)
 
 }

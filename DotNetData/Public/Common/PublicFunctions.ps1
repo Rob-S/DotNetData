@@ -166,15 +166,14 @@ function Set-DotNetDataConfiguration {
             $paramNameTypeDict['DllPath'] = [string[]]
          }
 
-# IMPL: Using $msgs1, $functionAndScriptLocation1, $activity1 due to: Cannot overwrite variable msgs because the variable has been optimized.
          default {
          # Error Message with location in this module
             [string[]] $msgs = @(
                "$($MyInvocation.MyCommand.Name): Unrecognized DBMS '${DBMS}'"
                "in $($csf0.FunctionName) at $($csf0.ScriptName): $($csf0.ScriptLineNumber)"
             )
-            [string] $activity1 = "switch ('${DBMS}')"
-            Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::NotImplemented) -CategoryReason 'Coding error in module!' -CategoryActivity $activity1 -CategoryTargetName $MyInvocation.MyCommand.Name -CategoryTargetType 'Module'
+            [string] $activity = "switch ('${DBMS}')"
+            Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::NotImplemented) -CategoryReason 'Coding error in module!' -CategoryActivity $activity -CategoryTargetName $MyInvocation.MyCommand.Name -CategoryTargetType 'Module'
          }
 
       } # switch ($DBMS)
@@ -201,7 +200,6 @@ function Set-DotNetDataConfiguration {
       }
 
       [string[]] $msgs = [string[]]::new(0)
-      [string] $functionAndScriptLocation = [NullString]::Value
       [string] $activity = [NullString]::Value
 
    }
@@ -497,42 +495,6 @@ function ConvertTo-SqlQuotedName {
 } # function ConvertTo-SqlQuotedName
 
 
-[int] $Script:nDataSets = 0
-
-function New-DataSet {
-   [CmdletBinding(PositionalBinding = $false)]
-   [OutputType([Data.DataRowCollection])]
-   Param(
-      [Parameter(Position = 0, Mandatory = $false, ValueFromPipeline = $true)]
-      [string[]] $DataSetName = ( , [NullString]::Value )
-   ) # Param
-
-   Begin {
-   }
-
-   Process {
-
-      $DataSetName | % {
-         $dsname = $_
-
-         if ($dsname -eq $null) {
-            $Script:nDataSets += 1
-            $dsname = "DataSet #${nDataSets}."
-         }
-
-         [Data.DataSet] $dataset = New-Object -TypeName 'Data.DataSet' ($dsname)
-         Write-Output -InputObject $dataset
-
-      }
-
-   }
-
-   End {
-   }
-
-} # function New-DataSet
-
-
 function Get-DBMS {
    [CmdletBinding()]
    [OutputType([string])]
@@ -545,6 +507,9 @@ function Get-DBMS {
    [Management.Automation.CallStackFrame] $csf0 = (gcs)[0]; switch -Exact ($InputObject.GetType().FullName) {
       'Npgsql.NpgsqlDataAdapter' {
          $dbms = 'PostgreSQL'
+      }
+      'System.Data.SqlClient.SqlConnection' {
+         $dbms = 'SQL Server'
       }
       'System.Data.SqlClient.SqlDataAdapter' {
          $dbms = 'SQL Server'
@@ -565,6 +530,55 @@ function Get-DBMS {
    Write-Output -InputObject $dbms
 
 } # function Get-DBMS
+
+
+function Get-DBMSWithVersion {
+   [CmdletBinding()]
+   [OutputType([string])]
+   param(
+      [Parameter(Mandatory)]
+      [object] $InputObject
+   )
+
+   [string] $dbms = Get-DBMS -InputObject $InputObject
+   [string] $version = [NullString]::Value
+   [Management.Automation.CallStackFrame] $csf0 = (gcs)[0]; switch -Exact ($dbms) {
+      'PostgreSQL' {
+         $version = '???'
+      }
+      'SQL Server' {
+         [version] $ssVersion = $conn.ServerVersion
+         [string] $version = switch -Exact ("$($ssVersion.Major).$($ssVersion.Minor)") {
+            '9.0' { '2005' }
+            '10.0' { '2008' }
+            '10.5' { '2008 R2' }
+            '11.0' { '2012' }
+            '12.0' { '2014' }
+            '13.0' { '2016' }
+            '14.0' { '2017' }
+            '15.0' { '2019' }
+            '16.0' { '2022' }
+            '17.0' { '2025' }
+            default {
+            }
+         } # switch
+      }
+      'SQLite' {
+         $version = '???'
+      }
+      default {
+      # Error Message with location in this module
+         [string[]] $msgs = @(
+            "DBMS '${dbms}' not recognized"
+            "in $($csf0.FunctionName) at $($csf0.ScriptName): $($csf0.ScriptLineNumber)"
+         )
+         [string] $activity = "switch ('$($InputObject.GetType().FullName)')"
+         Write-Error -Message ($msgs -join $([Environment]::NewLine)) -Category ([Management.Automation.ErrorCategory]::NotImplemented) -CategoryReason 'Coding error in module!' -CategoryActivity $activity -CategoryTargetName $MyInvocation.MyCommand.Name -CategoryTargetType 'Module'
+      }
+   }
+   Write-Output -InputObject "${dbms} ${version}"
+
+} # function Get-DBMSWithVersion
 
 
 function Get-DataSourceNameOrAddress {
@@ -658,6 +672,43 @@ function Get-DataSourceNameOrAddress {
 
 } # function Get-DataSourceNameOrAddress
 
+
+[int] $Script:nDataSets = 0
+
+function New-DataSet {
+   [CmdletBinding(PositionalBinding = $false)]
+   [OutputType([Data.DataSet])]
+   Param(
+      [Parameter(Position = 0, Mandatory = $false, ValueFromPipeline = $true)]
+      [string[]] $DataSetName = ( , [NullString]::Value )
+   ) # Param
+
+   Begin {
+   }
+
+   Process {
+
+      $DataSetName | % {
+         $dsname = $_
+
+         if ($dsname -eq $null) {
+            $Script:nDataSets += 1
+            $dsname = "DataSet #${nDataSets}."
+         }
+
+         [Data.DataSet] $dataset = New-Object -TypeName 'Data.DataSet' ($dsname)
+         Write-Output -InputObject $dataset
+
+      }
+
+   }
+
+   End {
+   }
+
+} # function New-DataSet
+
+
 <# If there are any parameters, all Connections must be the same type as for the first Connection #>
 
 <# PgSqlType enumeration values:
@@ -709,7 +760,7 @@ function Get-DataSourceNameOrAddress {
 
 function New-DataAdapter {
    [CmdletBinding(PositionalBinding = $false)]
-   [OutputType([Data.Common.DbDataAdapter])]
+   [OutputType([Data.Common.DbDataAdapter[]])]
    Param(
       [Parameter(Position = 0, Mandatory = $true, ValueFromPipeline = $true)]
       [Data.Common.DbConnection[]] $Connection,
@@ -728,7 +779,6 @@ function New-DataAdapter {
 
    # Avoid: Cannot overwrite variable {name} because the variable has been optimized.
       [string[]] $msgs = [string[]]::new(0)
-      [string] $functionAndScriptLocation = [NullString]::Value
       [string] $activity = [NullString]::Value
 
       [string] $paramName = 'ParameterTypeDictionary'
@@ -752,7 +802,7 @@ function New-DataAdapter {
          }
       # SQL Server
          'System.Data.SqlClient.SqlConnection' {
-            [Type] $paramType = [Collections.Generic.Dictionary[[string], [Data.SqlDbType]]]
+            [Type] $paramType = [Collections.Generic.Dictionary[[string], [ValueTuple[[Data.SqlDbType], [int]]]]]
          }
          default {
          # Error Message with location in this module
@@ -859,7 +909,7 @@ if ($cmdClass -eq $null) {
             if ($ParameterTypeDictionary -ne $NULL) {
                $ParameterTypeDictionary.Keys | % {
                   $key = $_
-                  $cmd.Parameters.Add($key, $ParameterTypeDictionary[$key])
+                  [void] $cmd.Parameters.Add($key, $ParameterTypeDictionary[$key])
                }
             }
 
@@ -915,6 +965,33 @@ if ($cmdClass -eq $null) {
 } # function New-DataAdapter
 
 
+<# Data.CommandBehavior
+
+   $reader = $cmd.ExecuteReader([System.Data.CommandBehavior]::SingleRow)
+
+Default	0	
+The query may return multiple result sets. Execution of the query may affect the database state. Default sets no CommandBehavior flags, so calling ExecuteReader(CommandBehavior.Default) is functionally equivalent to calling ExecuteReader().
+
+SingleResult	1	
+The query returns a single result set.
+
+SchemaOnly	2	
+The query returns column information only. When using SchemaOnly, the .NET Framework Data Provider for SQL Server precedes the statement being executed with SET FMTONLY ON.
+
+KeyInfo	4	
+The query returns column and primary key information. The provider appends extra columns to the result set for existing primary key and timestamp columns.
+
+SingleRow	8	
+The query is expected to return a single row of the first result set. Execution of the query may affect the database state. Some .NET data providers may, but are not required to, use this information to optimize the performance of the command. When you specify SingleRow with the ExecuteReader() method of the OleDbCommand object, the .NET Framework Data Provider for OLE DB performs binding using the OLE DB IRow interface if it is available. Otherwise, it uses the IRowset interface. If your SQL statement is expected to return only a single row, specifying SingleRow can also improve application performance. It is possible to specify SingleRow when executing queries that are expected to return multiple result sets. In that case, where both a multi-result set SQL query and single row are specified, the result returned will contain only the first row of the first result set. The other result sets of the query will not be returned.
+
+SequentialAccess	16	
+Provides a way for the DataReader to handle rows that contain columns with large binary values. Rather than loading the entire row, SequentialAccess enables the DataReader to load data as a stream. You can then use the GetBytes or GetChars method to specify a byte location to start the read operation, and a limited buffer size for the data being returned.
+
+CloseConnection	32	
+When the command is executed, the associated Connection object is closed when the associated DataReader object is closed.
+#>
+
+
 <# Get-Rows
    If DbDataAdapter parameter is included, returns the first result set.
    Example:
@@ -932,20 +1009,20 @@ function Get-Rows {
       [Parameter(ParameterSetName = 'ForEachDatabase', Mandatory = $true, ValueFromPipeline = $false)]
       [Switch] $ForEachDatabase,
       [Parameter(ParameterSetName = 'OneDatabase', Position = 1, Mandatory = $true, ValueFromPipeline = $true)]
-      [Parameter(ParameterSetName = 'ForEachDatabase', Position = 1, Mandatory = $true, ValueFromPipeline = $true)]
+      [Parameter(ParameterSetName = 'ForEachDatabase', Position = 0, Mandatory = $true, ValueFromPipeline = $true)]
       [Parameter(ParameterSetName = 'OptionalDataAdapter', Position = 0, Mandatory = $false, ValueFromPipeline = $true)]
       [Data.Common.DbDataAdapter[]] $DataAdapter = $NULL,
          # requires relational DbDataAdapter for *Command rather than generic DataAdapter
       [Parameter(ParameterSetName = 'OneDatabase', Position = 2, Mandatory = $true, ValueFromPipeline = $false)]
-      [Parameter(ParameterSetName = 'ForEachDatabase', Position = 2, Mandatory = $true, ValueFromPipeline = $false)]
+      [Parameter(ParameterSetName = 'ForEachDatabase', Position = 1, Mandatory = $true, ValueFromPipeline = $false)]
       [Parameter(ParameterSetName = 'OptionalDataAdapter', Position = 1, Mandatory = $true, ValueFromPipeline = $false)]
       [Data.DataSet[]] $DataSet,
       [Parameter(ParameterSetName = 'OneDatabase', Position = 3, Mandatory = $false, ValueFromPipeline = $false)]
-      [Parameter(ParameterSetName = 'ForEachDatabase', Position = 3, Mandatory = $false, ValueFromPipeline = $false)]
+      [Parameter(ParameterSetName = 'ForEachDatabase', Position = 2, Mandatory = $false, ValueFromPipeline = $false)]
       [Parameter(ParameterSetName = 'OptionalDataAdapter', Position = 2, Mandatory = $false, ValueFromPipeline = $false)]
       [int] $DataSetIndex = 0,
       [Parameter(ParameterSetName = 'OneDatabase', Position = 4, Mandatory = $false, ValueFromPipeline = $false)]
-      [Parameter(ParameterSetName = 'ForEachDatabase', Position = 4, Mandatory = $false, ValueFromPipeline = $false)]
+      [Parameter(ParameterSetName = 'ForEachDatabase', Position = 3, Mandatory = $false, ValueFromPipeline = $false)]
       [Parameter(ParameterSetName = 'OptionalDataAdapter', Position = 3, Mandatory = $false, ValueFromPipeline = $false)]
       [int] $TableIndex = 0,
       [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
@@ -960,7 +1037,6 @@ function Get-Rows {
       }
 
       [string[]] $msgs = [string[]]::new(0)
-      [string] $functionAndScriptLocation = [NullString]::Value
       [string] $activity = [NullString]::Value
 
       if ($PSBoundParameters.ContainsKey('DataAdapter')) {
@@ -1012,12 +1088,12 @@ function Get-Rows {
             if ($cmd -eq $NULL) {
             # Error Message with location of calling statement
                [string[]] $msgs = @(
-                  "$($MyInvocation.MyCommand.Name): Command has not been set in DataAdapter"
+                  "$($MyInvocation.MyCommand.Name): SelectCommand has not been set in DataAdapter"
                   "in $($csf0.FunctionName) at $($csf0.ScriptName): $($csf0.ScriptLineNumber)"
                   "in $($CallStackFrame.FunctionName) at $($CallStackFrame.ScriptName): $($CallStackFrame.ScriptLineNumber)"
                )
                $activity = 'Get-Rows using DataAdapter(s)'
-               Write-Error -Message (@( $msgs; $functionAndScriptLocation ) -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::InvalidArgument) -CategoryReason 'Command not set' -CategoryActivity $activity -CategoryTargetName 'SelectCommand' -CategoryTargetType 'DataAdapter.Command'
+               Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::InvalidArgument) -CategoryReason 'Command not set' -CategoryActivity $activity -CategoryTargetName 'SelectCommand' -CategoryTargetType 'DataAdapter.Command'
             }
 
             [Management.Automation.CallStackFrame] $csf0 = (gcs)[0]; if ($cmd.Connection.State -ne 'Open') {
@@ -1155,6 +1231,66 @@ function Get-Rows {
 } # function Get-Rows
 
 
+function Get-OneRow {
+
+   $reader = $cmd.ExecuteReader([System.Data.CommandBehavior]::SingleRow)
+
+}
+
+
+function Get-Scalar {
+   [CmdletBinding(PositionalBinding = $false, SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
+   [OutputType([object[]])]
+   Param(
+      [Parameter(ParameterSetName = 'OneDatabase', Position = 0, Mandatory = $true, ValueFromPipeline = $false)]
+      [string] $DatabaseName = [NullString]::Value,
+      [Parameter(ParameterSetName = 'ForEachDatabase', Mandatory = $true, ValueFromPipeline = $false)]
+      [Switch] $ForEachDatabase,
+      [Parameter(ParameterSetName = 'OneDatabase', Position = 1, Mandatory = $true, ValueFromPipeline = $true)]
+      [Parameter(ParameterSetName = 'ForEachDatabase', Position = 0, Mandatory = $true, ValueFromPipeline = $true)]
+      [Parameter(ParameterSetName = 'CurrentDatabase', Position = 0, Mandatory = $true, ValueFromPipeline = $true)]
+      [Data.Common.DbConnection[]] $Connection,
+      [Parameter(ParameterSetName = 'OneDatabase', Position = 2, Mandatory = $true, ValueFromPipeline = $false)]
+      [Parameter(ParameterSetName = 'ForEachDatabase', Position = 1, Mandatory = $true, ValueFromPipeline = $false)]
+      [Parameter(ParameterSetName = 'CurrentDatabase', Position = 1, Mandatory = $true, ValueFromPipeline = $false)]
+      [Parameter(Position = 1, Mandatory = $true, ValueFromPipeline = $false)]
+      [string] $Query = [NullString]::Value,
+      [Parameter(ParameterSetName = 'OneDatabase', Position = 3, Mandatory = $false, ValueFromPipeline = $false)]
+      [Parameter(ParameterSetName = 'ForEachDatabase', Position = 2, Mandatory = $false, ValueFromPipeline = $false)]
+      [Parameter(ParameterSetName = 'CurrentDatabase', Position = 2, Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CommandTimeout = $Script:DefaultCommandTimeout,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [AllowNull()]
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
+   )
+
+   Begin {
+
+      if ($CallStackFrame -eq $NULL) {
+         $CallStackFrame = (gcs)[1]
+      }
+
+   } # Begin
+
+   Process {
+
+      $Connection | % {
+         [Data.Common.DbConnection] $conn = $_
+
+         [Data.Common.DbCommand] $cmd = $conn.CreateCommand()
+         $cmd.CommandText = $Query
+         Write-Output -InputObject $cmd.ExecuteScalar()
+
+      } # % $Connection
+   
+   } # Process
+
+   End {
+   } # End
+
+}
+
+
 function Compare-DataFromTwoDataAdapters {
    [CmdletBinding(PositionalBinding = $false, SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
    [OutputType([Data.DataRow[]])]
@@ -1219,13 +1355,13 @@ function Compare-DataFromTwoDataAdapters {
              $params.ForEachDatabase = $ForEachDatabase
          }
 
-          $params.DataAdapter = $da
-          $params.DataSet = $ds
+         $params.DataAdapter = $da
+         $params.DataSet = $ds
 
-         [Data.DataRow[]] $rows = Get-Rows @params
+         [Data.DataRow[]] $rows = Get-Rows @params -CallStackFrame $CallStackFrame
          $dataRowLists[$dai].AddRange($rows)
          for ($i = 1; $i -lt $ds.Tables.Count; $i += 1) {
-            [Data.DataRow[]] $rows = Get-Rows -DataSet $ds -DataSetIndex 0 -TableIndex $i
+            [Data.DataRow[]] $rows = Get-Rows -DataSet $ds -DataSetIndex 0 -TableIndex $i -CallStackFrame $CallStackFrame
             $dataRowLists[$dai].AddRange($rows)
          }
 
@@ -1432,7 +1568,7 @@ function Compare-DataFromTwoDataAdapters {
                            "in $($csfTry.FunctionName) at $($csfTry.ScriptName): $($csfTry.ScriptLineNumber)"
                            "in $($CallStackFrame.FunctionName) at $($CallStackFrame.ScriptName): $($CallStackFrame.ScriptLineNumber)"
                         )
-                        Write-Warning -Message (@( $msgs; $functionAndScriptLocation ) -join "$([Environment]::NewLine)         ")
+                        Write-Warning -Message ($msgs -join "$([Environment]::NewLine)         ")
                         Write-Error -ErrorRecord $er1 -CategoryActivity $er1.CategoryInfo.Activity -CategoryTargetName $er1.CategoryInfo.TargetName -CategoryTargetType $er1.CategoryInfo.TargetType
                      } # catch
                      } # else (both MatchColumns -isnot [DBNull])
@@ -1614,7 +1750,7 @@ function Compare-Data {
          [Data.DataRow[]] $rows = Get-Rows @params -CallStackFrame $CallStackFrame
          $dataRowList.AddRange($rows)
          for ($i = 1; $i -lt $ds.Tables.Count; $i += 1) {
-            [Data.DataRow[]] $rows = Get-Rows -DataSet $ds -DataSetIndex 0 -TableIndex $i
+            [Data.DataRow[]] $rows = Get-Rows -DataSet $ds -DataSetIndex 0 -TableIndex $i -CallStackFrame $CallStackFrame
             $dataRowList.AddRange($rows)
          }
 

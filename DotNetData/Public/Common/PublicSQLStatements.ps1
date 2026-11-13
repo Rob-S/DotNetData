@@ -5,15 +5,24 @@ For any given function, the same set of columns is returned for each DBMS.
 #>
 
 
+[int] $Script:DefaultCommandTimeout = 30
+[int] $Script:LongCommandTimeout = 600
+
+
 <# ServerProperties
 #>
 
-function Get-DataAdapterForServerProperties {
+function New-DataAdapterForServerProperties {
    [CmdletBinding(PositionalBinding = $false, SupportsShouldProcess = $true)]
    [OutputType([Data.Common.DbDataAdapter[]])]
    Param(
       [Parameter(Position = 0, Mandatory = $true, ValueFromPipeline = $true)]
-      [Data.Common.DbConnection[]] $Connection
+      [Data.Common.DbConnection[]] $Connection,
+      [Parameter(Position = 1, Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CommandTimeout = $Script:DefaultCommandTimeout,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [AllowNull()]
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
    )
 
    Begin {
@@ -30,7 +39,7 @@ select version(), current_database();
             }
             'System.Data.SqlClient.SqlConnection' {
 # sys.dm_os_host_info added in SQL Server 2019, Major version 14
-               [int] $majorVersion = ([version]$conn.ServerVersion).Major
+               [int] $majorVersion = ([version] $conn.ServerVersion).Major
                if ($majorVersion -lt 14) {
                   New-DataAdapter -Connection $conn -CommandTimeout $Script:DefaultCommandTimeout -Query @'
 select cast(ServerProperty('ServerName') as nvarchar(128)) [ServerName],
@@ -138,7 +147,7 @@ function Get-ServerProperties {
    }
 
    Process {
-      [Data.Common.DbDataAdapter[]] $dataAdapters = Get-DataAdapterForServerProperties -Connection $Connection
+      [Data.Common.DbDataAdapter[]] $dataAdapters = New-DataAdapterForServerProperties -Connection $Connection
       $dataAdapters | % {
          [Data.Common.DataAdapter] $da1 = $_
          if ($da1 -ne $null) {
@@ -161,7 +170,7 @@ function Get-ServerProperties {
                         [void] $list.Add($obj)
                   } # 'PostgreSQL'
                   'SQL Server' {
-                     [int] $majorVersion = ([version]$Connection.ServerVersion).Major
+                     [int] $majorVersion = ([version] $Connection.ServerVersion).Major
                      [Data.DataRow[]] $rows1 = Get-Rows -DataAdapter $da1 -DataSet $ds1
                      $rows1 | % {
                         [Data.DataRow] $row1 = $_
@@ -274,12 +283,17 @@ function Get-ServerProperties {
 <# Databases
 #>
 
-function Get-DataAdapterForDatabases {
+function New-DataAdapterForDatabases {
    [CmdletBinding(PositionalBinding = $false, SupportsShouldProcess = $true)]
    [OutputType([Data.Common.DbDataAdapter[]])]
    Param(
       [Parameter(Position = 0, Mandatory = $true, ValueFromPipeline = $true)]
-      [Data.Common.DbConnection[]] $Connection
+      [Data.Common.DbConnection[]] $Connection,
+      [Parameter(Position = 1, Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CommandTimeout = $Script:DefaultCommandTimeout,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [AllowNull()]
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
    )
 
    Begin {
@@ -328,7 +342,7 @@ function Get-Databases {
       [Collections.Generic.List[PSObject]] $list = New-Object -TypeName 'Collections.Generic.List[PSObject]'
    }
    Process {
-      [Data.Common.DbDataAdapter[]] $dataAdapters = Get-DataAdapterForDatabases -Connection $Connection
+      [Data.Common.DbDataAdapter[]] $dataAdapters = New-DataAdapterForDatabases -Connection $Connection
       $dataAdapters | % {
          [Data.Common.DataAdapter] $da1 = $_
          if ($da1 -ne $null) {
@@ -336,7 +350,7 @@ function Get-Databases {
             Try {
                [Management.Automation.CallStackFrame] $csf = (gcs)[0]; switch -Exact ($dbms) {
                   'SQL Server' {
-                     [int] $majorVersion = ([version]$Connection.ServerVersion).Major
+                     [int] $majorVersion = ([version] $Connection.ServerVersion).Major
                      [Data.DataRow[]] $rows1 = Get-Rows -DataAdapter $da1 -DataSet $ds1
                      if ($rows1.Count -eq 0) {
                         Write-Warning -Message "No rows returned from $($da1.SelectCommand.Connection.DataSource) `"$($da1.SelectCommand.CommandText)`""
@@ -385,11 +399,306 @@ function Get-Databases {
 }
 
 
+<# Server Permissions
+#>
+
+function New-DataAdapterForServerPermissions {
+   [CmdletBinding(PositionalBinding = $false, SupportsShouldProcess = $true)]
+   [OutputType([Collections.Generic.List[Data.Common.DbDataAdapter]], [string[]], [string[]])]
+   Param(
+      [Parameter(Position = 0, Mandatory = $true, ValueFromPipeline = $true)]
+      [Data.Common.DbConnection[]] $Connection,
+      [Parameter(Position = 1, Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CommandTimeout = $Script:DefaultCommandTimeout,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [AllowNull()]
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
+   )
+
+   Begin {
+
+      [Collections.Generic.List[Data.Common.DbDataAdapter]] $dataAdapterList = New-Object -TypeName 'Collections.Generic.List[Data.Common.DbDataAdapter]'
+      [bool] $first = $true
+      [string] $firstConnType = [NullString]::Value
+      [bool] $allConnectionsAreSameType = $true
+
+   }
+
+   Process {
+
+      if ($first) {
+         $firstConnType = $Connection.GetType()
+         $first = $false
+      }
+      elseif ($Connection.GetType() -ne $firstConnType) {
+         $allConnectionsAreSameType = $false
+      }
+
+      $Connection | % {
+         [Data.Common.DbConnection] $conn = $_
+         [Management.Automation.CallStackFrame] $csf = (gcs)[0]; switch -Exact ($conn.GetType()) {
+            'Npgsql.NpgsqlConnection' {
+               New-DataAdapter -Connection $conn -CommandTimeout $Script:DefaultCommandTimeout -Query @'
+select version(), current_database();
+'@
+            }
+            'System.Data.SqlClient.SqlConnection' {
+               [Data.Common.DbDataAdapter] $da = New-DataAdapter -Connection $conn -CommandTimeout $CommandTimeout -CallStackFrame $CallStackFrame -Query @'
+select cast(ServerProperty(N'ServerName') as nvarchar(128)) [ServerName],
+   case
+      when db_id() <= 4 then N'S ' + cast(db_id() as nvarchar(1))
+      else N'U ' + lower(db_name())
+   end [lower_database_type_and_id_or_name],
+   db_name() [database_name],
+   dp.[class],
+   dp.[class_desc],
+   concat(cast(dp.[class] as nvarchar(2)), N' ', dp.[class_desc]) [class_with_desc],
+   case
+      when dp.[major_id] < 0 then N'SYSTEM SECURABLE'
+      when dp.[major_id] > 0 then N'USER SECURABLE'
+      else N'DATABASE'
+   end [major_type],
+   dp.[major_id],
+   dp.[minor_id],
+   case
+      when s.[securable_type] is null and dp.[major_id] < 0
+      then N''
+      else s.[securable_type]
+   end [securable_type],
+   case
+      when s.[securable_type_desc] is null and dp.[major_id] < 0
+      then N'SYSTEM VIEW'
+      else s.[securable_type_desc]
+   end [securable_type_desc],
+   lower(case
+      when s.[securable_schema_name] is null and dp.[major_id] < 0
+      then object_schema_name(dp.[major_id])
+      else s.[securable_schema_name]
+   end) [lower_securable_schema_name],
+   case
+      when s.[securable_schema_name] is null and dp.[major_id] < 0
+      then object_schema_name(dp.[major_id])
+      else s.[securable_schema_name]
+   end [securable_schema_name],
+   case
+      when s.[major_id] is null and dp.[major_id] < 0 and dp.[class] = 0
+      then db_id()
+      when s.[major_id] is null and dp.[major_id] < 0
+      then dp.[major_id]
+      else s.[major_id]
+   end [securable_major_id],
+   lower(case
+      when s.[securable_name] is null and dp.[major_id] < 0
+      then object_name(dp.[major_id])
+      else s.[securable_name]
+   end) [lower_securable_name],
+   case
+      when s.[securable_name] is null and dp.[major_id] < 0
+      then object_name(dp.[major_id])
+      else s.[securable_name]
+   end [securable_name],
+   case
+      when s.[minor_id] is null and dp.[major_id] < 0
+      then dp.[minor_id]
+      else s.[minor_id]
+   end [securable_minor_id],
+   lower(case
+      when s.[column_name] is null and dp.[major_id] < 0
+      then N''
+      else s.[column_name]
+   end) [lower_column_name],
+   case
+      when s.[column_name] is null and dp.[major_id] < 0
+      then N''
+      else s.[column_name]
+   end [column_name],
+   case
+      when s.[securable_qualified_name] is null and dp.[major_id] < 0
+      then concat(object_schema_name(dp.[major_id]), N'.', object_name(dp.[major_id]))
+      else s.[securable_qualified_name]
+   end [securable_qualified_name],
+   s.[owner_sid],
+   s.[owner_principal_id],
+   s.[owner_name],
+   s.[owner_type],
+   s.[owner_type_desc],
+   s.[owner_is_fixed_role],
+   s.[owner_authentication_type],
+   s.[owner_authentication_type_desc],
+   dp.[grantee_principal_id],
+   dp.[grantor_principal_id],
+   dp.[type] [permission_type],
+   dp.[permission_name],
+   dp.[state],
+   dp.[state_desc],
+   lower(dpa.[name]) [lower_grantee_name],
+   dpa.[name] [grantee_name],
+   dpa.[type] [grantee_type],
+   dpa.[type_desc] [grantee_type_desc],
+   dpa.[is_fixed_role] [grantee_is_fixed_role],
+   dpa.[authentication_type] [grantee_authentication_type],
+   dpa.[authentication_type_desc] [grantee_authentication_type_desc],
+   dpb.[name] [grantor_name],
+   dpb.[type] [grantor_type],
+   dpb.[type_desc] [grantor_type_desc],
+   dpb.[is_fixed_role] [grantor_is_fixed_role],
+   dpb.[authentication_type] [grantor_authentication_type],
+   dpb.[authentication_type_desc] [grantor_authentication_type_desc]
+from [sys].[database_permissions] dp
+left outer join (
+   select 0 [class],
+      N'' [securable_type],
+      N'DATABASE' [securable_type_desc],
+      N'' [securable_schema_name],
+      db_id() [major_id],
+      db_name() [securable_name],
+      0 [minor_id],
+      N'' [column_name],
+      db_name() [securable_qualified_name],
+      db.[owner_sid] [owner_sid],
+      NULL [owner_principal_id],
+      sp0.[name] [owner_name],
+      sp0.[type] [owner_type],
+      sp0.[type_desc] [owner_type_desc],
+      sp0.[is_fixed_role] [owner_is_fixed_role],
+      NULL [owner_authentication_type],
+      NULL [owner_authentication_type_desc]
+   from [sys].[databases] db
+   left outer join [sys].[server_principals] sp0
+   on sp0.[principal_id] = db.[owner_sid]
+   where db.[database_id] = db_id()
+   union all
+   select 1 [class],
+      ao1a.[type] [securable_type],
+      ao1a.[type_desc] [securable_type_desc],
+      object_schema_name(ao1a.[object_id]) [securable_schema_name],
+      ao1a.[object_id] [major_id],
+      ao1a.[name]  [securable_name],
+      0 [minor_id],
+      N'' [column_name],
+      ao1a.[name] [securable_qualified_name],
+      NULL [owner_sid],
+      ao1a.[principal_id] [owner_principal_id],
+      dp1a.[name] [owner_name],
+      dp1a.[type] [owner_type],
+      dp1a.[type_desc] [owner_type_desc],
+      dp1a.[is_fixed_role] [owner_is_fixed_role],
+      dp1a.[authentication_type] [owner_authentication_type],
+      dp1a.[authentication_type_desc] [owner_authentication_type_desc]
+   from [sys].[all_objects] ao1a
+   left outer join [sys].[database_principals] dp1a
+   on dp1a.[principal_id] = ao1a.[principal_id]
+   union all
+   select 1 [class],
+      ao1b.[type] [securable_type],
+      ao1b.[type_desc] [securable_type_desc],
+      object_schema_name(ao1b.[object_id]) [securable_schema_name],
+      ao1b.[object_id] [major_id],
+      ao1b.[name] [securable_name],
+      ac1b.[column_id] [minor_id],
+      ac1b.[name] [column_name],
+      concat(object_schema_name(ao1b.[object_id]), N'.', ao1b.[name], N'.', ac1b.[name]) [securable_qualified_name],
+      NULL [owner_sid],
+      ao1b.[principal_id] [owner_principal_id],
+      dp1b.[name] [owner_name],
+      dp1b.[type] [owner_type],
+      dp1b.[type_desc] [owner_type_desc],
+      dp1b.[is_fixed_role] [owner_is_fixed_role],
+      dp1b.[authentication_type] [owner_authentication_type],
+      dp1b.[authentication_type_desc] [owner_authentication_type_desc]
+   from [sys].[all_objects] ao1b
+   inner join [sys].[all_columns] ac1b
+   on ac1b.[object_id] = ao1b.[object_id]
+   left outer join [sys].[database_principals] dp1b
+   on dp1b.[principal_id] = ao1b.[principal_id]
+   union all
+   select 3 [class],
+      N'' [securable_type],
+      N'SCHEMA' [securable_type_desc],
+      s3.[name] [securable_schema_name],
+      s3.[schema_id] [major_id],
+      s3.[name] [securable_name],
+      0 [minor_id],
+      NULL [column_name],
+      s3.[name] [securable_qualified_name],
+      NULL [owner_sid],
+      s3.[principal_id] [owner_principal_id],
+      dp3.[name] [owner_name],
+      dp3.[type] [owner_type],
+      dp3.[type_desc] [owner_type_desc],
+      dp3.[is_fixed_role] [owner_is_fixed_role],
+      dp3.[authentication_type] [owner_authentication_type],
+      dp3.[authentication_type_desc] [owner_authentication_type_desc]
+   from [sys].[schemas] s3
+   left outer join [sys].[database_principals] dp3
+   on dp3.[principal_id] = s3.[principal_id]
+) s
+on dp.[class] = 0 and s.[class] = dp.[class]
+or exists (
+   select dp.[class], dp.[major_id], dp.[minor_id]
+   intersect
+   select s.[class], s.[major_id], s.[minor_id]
+)
+left outer join [sys].[database_principals] dpa
+on dpa.[principal_id] = dp.[grantee_principal_id]
+left outer join [sys].[database_principals] dpb
+on dpb.[principal_id] = dp.[grantor_principal_id]
+order by case
+      when db_id() <= 4 then N'S ' + cast(db_id() as nvarchar(1))
+      else N'U ' + lower(db_name())
+   end collate Latin1_General_BIN asc,
+   dp.[class] asc,
+   lower(case
+      when s.[securable_type_desc] is null and dp.[major_id] < 0
+      then object_schema_name(dp.[major_id])
+      else s.[securable_schema_name]
+   end) collate Latin1_General_BIN asc,
+   lower(case
+      when s.[securable_type_desc] is null and dp.[major_id] < 0
+      then object_name(dp.[major_id])
+      else s.[securable_name]
+   end) collate Latin1_General_BIN asc,
+   lower(s.[column_name]) collate Latin1_General_BIN asc,
+   dpa.[type] collate Latin1_General_BIN asc,
+   lower(dpa.[name]) collate Latin1_General_BIN asc,
+   dp.[permission_name] collate Latin1_General_BIN asc;
+'@
+            }
+            'System.Data.SQLite.SQLiteConnection' {
+               New-DataAdapter -Connection $conn -CommandTimeout $Script:DefaultCommandTimeout -Query 'select ???;'
+            }
+            default {
+               Write-Error -Message "$($MyInvocation.MyCommand.Name): Connection.Type '$($conn.GetType())' not recognized" -Category ([Management.Automation.ErrorCategory]::NotImplemented) -CategoryReason 'Coding error in module!' -CategoryActivity 'switch ($conn.GetType())' -CategoryTargetName $MyInvocation.MyCommand.Name -CategoryTargetType 'Module File'
+            }
+         } # switch ($conn.GetType())
+
+         $dataAdapterList.Add($da)
+
+      } # % $Connection
+
+   } # Process
+
+   End {
+
+      [string[]] $matchColumns = 'lower_database_type_and_id_or_name', 'class_with_desc', 'lower_securable_schema_name', 'lower_securable_name', 'lower_column_name', 'grantee_type', 'lower_grantee_name', 'permission_name'
+      [string[]] $compareColumns = 'major_type', 'securable_type', 'securable_type_desc', 'securable_qualified_name', 'owner_name', 'owner_type', 'owner_type_desc', 'owner_is_fixed_role', 'owner_authentication_type', 'owner_authentication_type_desc', 'state', 'state_desc', 'grantee_name', 'grantee_type', 'grantee_type_desc', 'grantee_is_fixed_role', 'grantee_authentication_type', 'grantee_authentication_type_desc', 'grantor_name', 'grantor_type', 'grantor_type_desc', 'grantor_is_fixed_role', 'grantor_authentication_type', 'grantor_authentication_type_desc'
+
+      if ($allConnectionsAreSameType) {
+         return $dataAdapterList, $matchColumns, $compareColumns
+      }
+      else {
+         return $dataAdapterList
+      }
+
+   }
+
+}
+
 
 <# Database Permissions
 #>
 
-function Get-DataAdapterForDatabasePermissions {
+function New-DataAdapterForDatabasePermissions {
    [CmdletBinding(PositionalBinding = $false, SupportsShouldProcess = $true)]
    [OutputType([Collections.Generic.List[Data.Common.DbDataAdapter]], [string[]], [string[]])]
    Param(
@@ -447,44 +756,65 @@ select cast(ServerProperty(N'ServerName') as nvarchar(128)) [ServerName],
    end [major_type],
    dp.[major_id],
    dp.[minor_id],
-   s.[securable_type],
+   case
+      when s.[securable_type] is null and dp.[major_id] < 0
+      then N''
+      else s.[securable_type]
+   end [securable_type],
    case
       when s.[securable_type_desc] is null and dp.[major_id] < 0
-      then case
-         when 1 = 1 then N'System View'
-         else N'???'
-      end
+      then N'SYSTEM VIEW'
       else s.[securable_type_desc]
    end [securable_type_desc],
    lower(case
-      when s.[securable_type_desc] is null and dp.[major_id] < 0
+      when s.[securable_schema_name] is null and dp.[major_id] < 0
       then object_schema_name(dp.[major_id])
       else s.[securable_schema_name]
    end) [lower_securable_schema_name],
    case
-      when s.[securable_type_desc] is null and dp.[major_id] < 0
+      when s.[securable_schema_name] is null and dp.[major_id] < 0
       then object_schema_name(dp.[major_id])
       else s.[securable_schema_name]
    end [securable_schema_name],
-   s.[major_id] [securable_major_id],
+   case
+      when s.[major_id] is null and dp.[major_id] < 0 and dp.[class] = 0
+      then db_id()
+      when s.[major_id] is null and dp.[major_id] < 0
+      then dp.[major_id]
+      else s.[major_id]
+   end [securable_major_id],
    lower(case
-      when s.[securable_type_desc] is null and dp.[major_id] < 0
+      when s.[securable_name] is null and dp.[major_id] < 0
       then object_name(dp.[major_id])
       else s.[securable_name]
    end) [lower_securable_name],
    case
-      when s.[securable_type_desc] is null and dp.[major_id] < 0
+      when s.[securable_name] is null and dp.[major_id] < 0
       then object_name(dp.[major_id])
       else s.[securable_name]
    end [securable_name],
-   s.[minor_id] [securable_minor_id],
-   lower(s.[column_name]) [lower_column_name],
-   s.[column_name],
    case
-      when s.[securable_type_desc] is null and dp.[major_id] < 0
+      when s.[minor_id] is null and dp.[major_id] < 0
+      then dp.[minor_id]
+      else s.[minor_id]
+   end [securable_minor_id],
+   lower(case
+      when s.[column_name] is null and dp.[major_id] < 0
+      then N''
+      else s.[column_name]
+   end) [lower_column_name],
+   case
+      when s.[column_name] is null and dp.[major_id] < 0
+      then N''
+      else s.[column_name]
+   end [column_name],
+   case
+      when s.[securable_qualified_name] is null and dp.[major_id] < 0
       then concat(object_schema_name(dp.[major_id]), N'.', object_name(dp.[major_id]))
       else s.[securable_qualified_name]
    end [securable_qualified_name],
+   s.[owner_sid],
+   s.[owner_principal_id],
    s.[owner_name],
    s.[owner_type],
    s.[owner_type_desc],
@@ -512,15 +842,39 @@ select cast(ServerProperty(N'ServerName') as nvarchar(128)) [ServerName],
    dpb.[authentication_type_desc] [grantor_authentication_type_desc]
 from [sys].[database_permissions] dp
 left outer join (
+   select 0 [class],
+      N'' [securable_type],
+      N'DATABASE' [securable_type_desc],
+      N'' [securable_schema_name],
+      db_id() [major_id],
+      db_name() [securable_name],
+      0 [minor_id],
+      N'' [column_name],
+      db_name() [securable_qualified_name],
+      db.[owner_sid] [owner_sid],
+      NULL [owner_principal_id],
+      sp0.[name] [owner_name],
+      sp0.[type] [owner_type],
+      sp0.[type_desc] [owner_type_desc],
+      sp0.[is_fixed_role] [owner_is_fixed_role],
+      NULL [owner_authentication_type],
+      NULL [owner_authentication_type_desc]
+   from [sys].[databases] db
+   left outer join [sys].[server_principals] sp0
+   on sp0.[principal_id] = db.[owner_sid]
+   where db.[database_id] = db_id()
+   union all
    select 1 [class],
       ao1a.[type] [securable_type],
       ao1a.[type_desc] [securable_type_desc],
       object_schema_name(ao1a.[object_id]) [securable_schema_name],
       ao1a.[object_id] [major_id],
-      ao1a.[name] [securable_name],
+      ao1a.[name]  [securable_name],
       0 [minor_id],
       N'' [column_name],
-      concat(object_schema_name(ao1a.[object_id]), N'.', ao1a.[name]) [securable_qualified_name],
+      ao1a.[name] [securable_qualified_name],
+      NULL [owner_sid],
+      ao1a.[principal_id] [owner_principal_id],
       dp1a.[name] [owner_name],
       dp1a.[type] [owner_type],
       dp1a.[type_desc] [owner_type_desc],
@@ -540,6 +894,8 @@ left outer join (
       ac1b.[column_id] [minor_id],
       ac1b.[name] [column_name],
       concat(object_schema_name(ao1b.[object_id]), N'.', ao1b.[name], N'.', ac1b.[name]) [securable_qualified_name],
+      NULL [owner_sid],
+      ao1b.[principal_id] [owner_principal_id],
       dp1b.[name] [owner_name],
       dp1b.[type] [owner_type],
       dp1b.[type_desc] [owner_type_desc],
@@ -561,6 +917,8 @@ left outer join (
       0 [minor_id],
       NULL [column_name],
       s3.[name] [securable_qualified_name],
+      NULL [owner_sid],
+      s3.[principal_id] [owner_principal_id],
       dp3.[name] [owner_name],
       dp3.[type] [owner_type],
       dp3.[type_desc] [owner_type_desc],
@@ -571,7 +929,8 @@ left outer join (
    left outer join [sys].[database_principals] dp3
    on dp3.[principal_id] = s3.[principal_id]
 ) s
-on exists (
+on dp.[class] = 0 and s.[class] = dp.[class]
+or exists (
    select dp.[class], dp.[major_id], dp.[minor_id]
    intersect
    select s.[class], s.[major_id], s.[minor_id]

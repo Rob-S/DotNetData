@@ -66,6 +66,11 @@ function New-MySqlConnection {
          [String] $aServer = $_
 
          Initialize-MySqlConnectionStringBuilder -ConnectionStringBuilder $Script:mycsb
+         if ($Script:mycsb -eq $null) {
+            Write-Output -InputObject ([Data.Common.DbConnection] $null)
+         } # if ($Script:mycsb -eq $null)
+         else { # $Script:mycsb -ne $null
+
          $Script:mycsb['Server'] = $Server
          if ($Port -ge 0) {
             $Script:mycsb['Port'] = $Port
@@ -99,6 +104,8 @@ function New-MySqlConnection {
 
          # Return the Connection regardless of State 'Open' or not
             Write-Output -InputObject $conn
+
+         } # else ($Script:mycsb -ne $null)
 
       } # % $Server
 
