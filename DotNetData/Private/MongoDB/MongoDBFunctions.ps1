@@ -1,4 +1,7 @@
-﻿
+﻿<# DotNetData/Private/MongoDB/MongoDBFunctions.ps1
+#>
+
+
 function Initialize-MongoDBConnectionStringBuilder {
    [CmdletBinding(PositionalBinding = $false)]
    [OutputType([Data.Common.DbConnection[]])]

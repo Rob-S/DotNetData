@@ -1,9 +1,10 @@
-<# Test-SQLServerClasses.ps1
+<# DotNetData/Examples/Test-SQLServerClasses.ps1
 
 To reload updated module:
    Remove-Module -Name 'DotNetData'
 
 #>
+
 
 using module 'DotNetData'
 

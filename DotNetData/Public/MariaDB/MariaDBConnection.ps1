@@ -1,7 +1,10 @@
+<# DotNetData/Public/MariaDB/MariaDBConnection.ps1
+#>
+
 
 [Boolean] $Script:firstMariaDBConn = $true
 
-$Script:mycsb = $NULL
+$Script:mdcsb = $NULL
 
 #[int] $Script:DefaultCommandTimeout = 300 # default is 30
 
@@ -20,7 +23,9 @@ function New-MariaDBConnection {
       [String] $DatabaseName = 'MariaDB',
       [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
       [AllowNull()]
-      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CallStackCount = -1
    )
 
    Begin {
@@ -30,6 +35,13 @@ function New-MariaDBConnection {
 
       if ($CallStackFrame -eq $NULL) {
          [Management.Automation.CallStackFrame] $CallStackFrame = (gcs)[1]
+      }
+
+      if ($CallStackCount -eq -1) {
+         $CallStackCount = 2
+      }
+      else {
+         $CallStackCount += 1
       }
 
    # Load MariaDB.Data.dll
@@ -52,8 +64,8 @@ function New-MariaDBConnection {
 
    # Initialize script variable - ConnectionStringBuilder
 
-      if ($Script:mycsb -eq $NULL) {
-         [MariaDB.Data.MariaDBClient.MariaDBConnectionStringBuilder] $Script:mycsb = New-Object -TypeName 'MariaDB.Data.MariaDBClient.MariaDBConnectionStringBuilder'
+      if ($Script:mdcsb -eq $NULL) {
+         [MariaDB.Data.MariaDBClient.MariaDBConnectionStringBuilder] $Script:mdcsb = New-Object -TypeName 'MariaDB.Data.MariaDBClient.MariaDBConnectionStringBuilder'
       }
 
    }
@@ -62,25 +74,31 @@ function New-MariaDBConnection {
 
    # When $Server is from "-Server" parameter, each item in [String[]] $Server list is processed separately
    # for each item, return a single connection for just one name in $queue (vs. adding all $Server items to $queue at once)
-      $Server | % {
-         [String] $aServer = $_
 
-         Initialize-MariaDBConnectionStringBuilder -ConnectionStringBuilder $Script:mycsb
-         $Script:mycsb['Server'] = $Server
-         if ($Port -ge 0) {
-            $Script:mycsb['Port'] = $Port
-         }
-         $Script:mycsb['Database'] = $DatabaseName
-         $Script:mycsb['UserID'] = $UserName
-         [Management.Automation.PSCredential] $Credential = Get-CredentialForUserName -UserName $UserName -Server $aServer -CallStackFrame $CallStackFrame
-         if ($Credential -eq $NULL) {
-            return $null
-         }
-         $Script:mycsb['UserID'] = $Credential.UserName
-         $Script:mycsb['Password'] = $Credential.GetNetworkCredential().Password
-         [string] $connstr = $Script:mycsb.ToString()
+      foreach ($aServer in $Server) {
 
-      # Connect to MariaDB instance
+         if ($Script:mdcsb -eq $null) {
+            Write-Output -InputObject ([Data.Common.DbConnection] $null)
+         } # if ($Script:mdcsb -eq $null)
+         else { # $Script:mdcsb -ne $null
+
+            Initialize-MariaDBConnectionStringBuilder -ConnectionStringBuilder $Script:mdcsb
+
+            $Script:mdcsb['Server'] = $Server
+            if ($Port -ge 0) {
+               $Script:mdcsb['Port'] = $Port
+            }
+            $Script:mdcsb['Database'] = $DatabaseName
+            $Script:mdcsb['UserID'] = $UserName
+            [Management.Automation.PSCredential] $Credential = Get-CredentialForUserName -UserName $UserName -Server $aServer -CallStackFrame $CallStackFrame
+            if ($Credential -eq $NULL) {
+               return $null
+            }
+            $Script:mdcsb['UserID'] = $Credential.UserName
+            $Script:mdcsb['Password'] = $Credential.GetNetworkCredential().Password
+            [string] $connstr = $Script:mdcsb.ToString()
+
+         # Connect to MariaDB instance
 
             [MariaDB.Data.MariaDBClient.MariaDBConnection] $conn = New-Object -TypeName 'MariaDB.Data.MariaDBClient.MariaDBConnection' ($connstr)
 
@@ -88,8 +106,15 @@ function New-MariaDBConnection {
             Try {
                $conn.Open()
                if ($conn.State -ne 'Open') {
-                  [String[]] $msgs = "$($MyInvocation.MyCommand.Name): conn.Open() with Data Source=${server}", "$($MyInvocation.MyCommand.Name): Connection.State            = $($conn.State)", "Connection.DataSource       = $($conn.DataSource)", "Connection.Database         = $($conn.Database)", "Connection.ConnectionString = $($conn.ConnectionString)"
-                  Write-Error -Message ($msgs -join [Environment]::NewLine) -Category ([Management.Automation.ErrorCategory]::ConnectionError) -CategoryReason 'MariaDBConnection.Open failed' -CategoryTargetName $server -CategoryTargetType 'Server'
+                  [String[]] $msgs = @(
+                     "$($MyInvocation.MyCommand.Name): conn.Open() with Data Source=${server}"
+                     "Connection.Type             = $($conn.GetType().FullName)"
+                     "Connection.State            = $($conn.State)"
+                     "Connection.DataSource       = $($conn.DataSource)"
+                     "Connection.Database         = $($conn.Database)"
+                     "Connection.ConnectionString = $($conn.ConnectionString)"
+                  )
+                  Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::ConnectionError) -CategoryReason 'MariaDBConnection.Open failed' -CategoryTargetName $server -CategoryTargetType 'Server'
                }
             }
             Catch {
@@ -98,9 +123,12 @@ function New-MariaDBConnection {
             }
 
          # Return the Connection regardless of State 'Open' or not
+
             Write-Output -InputObject $conn
 
-      } # % $Server
+         } # else ($Script:mdcsb -ne $null)
+
+      } # foreach ($aServer in $Server)
 
    } # Process
 

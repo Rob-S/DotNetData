@@ -1,4 +1,4 @@
-﻿<# Public/SqlServer/PublicFunctionsForSSIDB.ps1
+﻿<# DotNetData/Public/SqlServer/PublicFunctionsForSSIDB.ps1
 
 Integration Services Catalog (SSISDB) Views
    https://learn.microsoft.com/en-us/sql/integration-services/system-views/views-integration-services-catalog
@@ -140,7 +140,7 @@ function Test-WriteError {
       $InputObject | % {
          [string] $str = $_
          if ($str -eq 'Error') {
-            [Management.Automation.ErrorRecord] $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+            [Management.Automation.ErrorRecord] $errorRecord = [Management.Automation.ErrorRecord]::new(
                [Exception]::new("Test error"),
                'TestId',
                [Management.Automation.ErrorCategory]::NotSpecified,
@@ -172,13 +172,22 @@ function New-DataAdapterForSSISProperties {
       [int] $CommandTimeout = $Script:DefaultCommandTimeout,
       [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
       [AllowNull()]
-      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CallStackCount = -1
    )
 
    Begin {
 
       if ($CallStackFrame -eq $NULL) {
          $CallStackFrame = (gcs)[1]
+      }
+
+      if ($CallStackCount -eq -1) {
+         $CallStackCount = 2
+      }
+      else {
+         $CallStackCount += 1
       }
 
       [Collections.Generic.List[Data.Common.DbDataAdapter]] $dataAdapterList = New-Object -TypeName 'Collections.Generic.List[Data.Common.DbDataAdapter]'
@@ -208,8 +217,7 @@ function New-DataAdapterForSSISProperties {
          if ($majorVersion -lt 14) {
             [string[]] $msgs = @(
                "$($MyInvocation.MyCommand.Name): [SSISDB].[catalog].[master_properties] does not exist in $(Get-DBMSWithVersion -InputObject $conn)"
-               "in $($csf0.FunctionName) at $($csf0.ScriptName): $($csf0.ScriptLineNumber)"
-               "in $($CallStackFrame.FunctionName) at $($CallStackFrame.ScriptName): $($CallStackFrame.ScriptLineNumber)"
+               Get-CallStackFunctionAndLocation -CallStackFrame $csf0 -CallStackCount $CallStackCount
             )
             [Management.Automation.ErrorRecord] $errorRecord = [Management.Automation.ErrorRecord]::new(
                [NotSupportedException]::new($msgs -join "$([Environment]::NewLine)         "),
@@ -308,13 +316,22 @@ function Compare-SSISProperties {
       [int] $CommandTimeout = $Script:DefaultCommandTimeout,
       [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
       [AllowNull()]
-      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CallStackCount = -1
    )
 
    Begin {
 
       if ($CallStackFrame -eq $NULL) {
          $CallStackFrame = (gcs)[1]
+      }
+
+      if ($CallStackCount -eq -1) {
+         $CallStackCount = 2
+      }
+      else {
+         $CallStackCount += 1
       }
 
       [Collections.Generic.List[Data.Common.DbConnection]] $dbConnList = New-Object -TypeName 'Collections.Generic.List[Data.Common.DbConnection]'

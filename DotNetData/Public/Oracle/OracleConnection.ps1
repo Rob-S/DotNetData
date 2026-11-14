@@ -1,7 +1,8 @@
-﻿<# Public/Oracle/OracleConnection.ps1
+﻿<# DotNetData/Public/Oracle/OracleConnection.ps1
 #>
 
-[Oracle.DataAccess.Client.OracleConnectionStringBuilder] $Script:sscsb = $NULL
+
+[Oracle.DataAccess.Client.OracleConnectionStringBuilder] $Script:ocsb = $NULL
 
 function New-OracleConnection {
    [CmdletBinding(PositionalBinding = $false)]
@@ -15,15 +16,24 @@ function New-OracleConnection {
       [Parameter(Position = 2, Mandatory = $true, ValueFromPipeline = $false)]
       [String] $UserName = [NullString]::Value,
       [Parameter(Position = 3, Mandatory = $false, ValueFromPipeline = $false)]
-      [String] $DatabaseName = [NullString]::Value
+      [String] $DatabaseName = [NullString]::Value,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CallStackCount = -1
    )
 
    Begin {
 
+      if ($CallStackCount -eq -1) {
+         $CallStackCount = 2
+      }
+      else {
+         $CallStackCount += 1
+      }
+
    # Initialize script variable - ConnectionStringBuilder
 
-      if ($Script:sscsb -eq $NULL) {
-         [Oracle.DataAccess.Client.OracleConnectionStringBuilder] $Script:sscsb = New-Object -TypeName 'Oracle.DataAccess.Client.OracleConnectionStringBuilder'
+      if ($Script:ocsb -eq $NULL) {
+         [Oracle.DataAccess.Client.OracleConnectionStringBuilder] $Script:ocsb = New-Object -TypeName 'Oracle.DataAccess.Client.OracleConnectionStringBuilder'
       }
 
    }
@@ -32,34 +42,49 @@ function New-OracleConnection {
 
    # When $Server is from "-Server" parameter, each item in [String[]] $Server list is processed separately
    # for each item, return a single connection for just one name in $queue (vs. adding all $Server items to $queue at once)
-      $Server | % {
-         [String] $aServer = $_
 
-         Initialize-OracleConnectionStringBuilder -ConnectionStringBuilder $Script:sscsb
+      foreach ($aServer in $Server) {
 
-         [string] $connstr = $Script:sscsb.ToString()
+         if ($Script:ocsb -eq $null) {
+            Write-Output -InputObject ([Data.Common.DbConnection] $null)
+         } # if ($Script:ocsb -eq $null)
+         else { # $Script:ocsb -ne $null
 
-      # Connect to Oracle instance
+            Initialize-OracleConnectionStringBuilder -ConnectionStringBuilder $Script:ocsb
 
-         [Oracle.DataAccess.Client.OracleConnection] $conn = New-Object -TypeName 'Oracle.DataAccess.Client.OracleConnection' ($connstr)
+            [string] $connstr = $Script:ocsb.ToString()
 
-         Try {
-            $conn.Open()
-            if ($conn.State -ne 'Open') {
-               [String[]] $msgs = "$($MyInvocation.MyCommand.Name): conn.Open() with Data Source=${server}", "Connection.Type             = $($conn.GetType().FullName)", "Connection.State            = $($conn.State)", "Connection.DataSource       = $($conn.DataSource)", "Connection.Database         = $($conn.Database)", "Connection.ConnectionString = $($conn.ConnectionString)"
-               Write-Error -Message ($msgs -join [Environment]::NewLine) -Category ([Management.Automation.ErrorCategory]::ConnectionError) -CategoryReason 'OracleConnection.Open failed' -CategoryTargetName $aServer -CategoryTargetType 'Server'
-            }
-            return
-         } # Try
-         Catch {
-            [Management.Automation.ErrorRecord] $er = $_
-            Write-Error -ErrorRecord $er -CategoryTargetName $aServer -CategoryTargetType 'Server'
-         } # Catch
+         # Connect to Oracle instance
 
-      # Return the Connection regardless of State 'Open' or not
-         Write-Output -InputObject $conn
+            [Oracle.DataAccess.Client.OracleConnection] $conn = New-Object -TypeName 'Oracle.DataAccess.Client.OracleConnection' ($connstr)
 
-      } # % $Server
+            Try {
+               $conn.Open()
+               if ($conn.State -ne 'Open') {
+                  [String[]] $msgs = @(
+                     "$($MyInvocation.MyCommand.Name): conn.Open() with Data Source=${server}"
+                     "Connection.Type             = $($conn.GetType().FullName)"
+                     "Connection.State            = $($conn.State)"
+                     "Connection.DataSource       = $($conn.DataSource)"
+                     "Connection.Database         = $($conn.Database)"
+                     "Connection.ConnectionString = $($conn.ConnectionString)"
+                  )
+                  Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::ConnectionError) -CategoryReason 'OracleConnection.Open failed' -CategoryTargetName $aServer -CategoryTargetType 'Server'
+               }
+               return
+            } # Try
+            Catch {
+               [Management.Automation.ErrorRecord] $er = $_
+               Write-Error -ErrorRecord $er -CategoryTargetName $aServer -CategoryTargetType 'Server'
+            } # Catch
+
+         # Return the Connection regardless of State 'Open' or not
+
+            Write-Output -InputObject $conn
+
+         } # else ($Script:ocsb -ne $null)
+
+      } # foreach ($aServer in $Server)
 
    } # Process
 

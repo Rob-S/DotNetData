@@ -1,4 +1,4 @@
-﻿<# PublicSQLStatements.ps1
+﻿<# DotNetData/Public/Common/PublicSQLStatements.ps1
 
 For any given function, the same set of columns is returned for each DBMS.
 
@@ -22,10 +22,24 @@ function New-DataAdapterForServerProperties {
       [int] $CommandTimeout = $Script:DefaultCommandTimeout,
       [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
       [AllowNull()]
-      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CallStackCount = -1
    )
 
    Begin {
+
+      if ($CallStackFrame -eq $NULL) {
+         $CallStackFrame = (gcs)[1]
+      }
+
+      if ($CallStackCount -eq -1) {
+         $CallStackCount = 2
+      }
+      else {
+         $CallStackCount += 1
+      }
+
    }
 
    Process {
@@ -138,31 +152,53 @@ function Get-ServerProperties {
    [OutputType([Collections.Generic.List[PSObject]])]
    Param(
       [Parameter(Position = 0, Mandatory = $true, ValueFromPipeline = $true)]
-      [Data.Common.DbConnection[]] $Connection
+      [Data.Common.DbConnection[]] $Connection,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [AllowNull()]
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CallStackCount = -1
    )
 
    Begin {
+
+      if ($CallStackFrame -eq $NULL) {
+         $CallStackFrame = (gcs)[1]
+      }
+
+      if ($CallStackCount -eq -1) {
+         $CallStackCount = 2
+      }
+      else {
+         $CallStackCount += 1
+      }
+
       [Data.DataSet] $ds1 = New-DataSet
       [Collections.Generic.List[PSObject]] $list = New-Object -TypeName 'Collections.Generic.List[PSObject]'
+
+      [Data.DataRow] $row1
+      [Object] $obj
+         # to avoid "Cannot overwrite variable row1 because the variable has been optimized."
+
    }
 
    Process {
-      [Data.Common.DbDataAdapter[]] $dataAdapters = New-DataAdapterForServerProperties -Connection $Connection
-      $dataAdapters | % {
-         [Data.Common.DataAdapter] $da1 = $_
+      [Data.Common.DbDataAdapter[]] $dataAdapters = New-DataAdapterForServerProperties -Connection $Connection -CallStackCount $CallStackCount
+      [Data.Common.DataAdapter] $da1
+      foreach ($da1 in $dataAdapters) {
          if ($da1 -ne $null) {
             [string] $dbms = Get-DBMS -InputObject $da1
+            [string] $dataSource = (Get-DataSourceNameOrAddress $da1).Split('.')[0]
             Try {
                [Management.Automation.CallStackFrame] $csf = (gcs)[0]; switch -Exact ($dbms) {
                   'PostgreSQL' {
-                        [Data.DataRow[]] $rows1 = Get-Rows -DataAdapter $da1 -DataSet $ds1
-                        $rows1 | % {
-                           [Data.DataRow] $row1 = $_
-                           [Object] $obj = New-Object -TypeName 'PSObject' -Property ([ordered]@{
+                        [Data.DataRow[]] $rows1 = Get-Rows -DataAdapter $da1 -DataSet $ds1 -CallStackFrame $CallStackFrame -CallStackCount $CallStackCount
+                        foreach ($row1 in $rows1) {
+                           $obj = New-Object -TypeName 'PSObject' -Property ([ordered]@{
                               'DBMS'            = $dbms
-                              'DataSourceName'  = $Connection.DataSource.Split('.')[0]
-                              'MajorVersion'    = $Connection.PostgreSqlVersion.Major
-                              'ServerVersion'   = $Connection.ServerVersion
+                              'DataSource'      = $dataSource
+                              'MajorVersion'    = $da1.SelectCommand.Connection.PostgreSqlVersion.Major
+                              'ServerVersion'   = $da1.SelectCommand.Connection.ServerVersion
                               'VersionString'   = $row1.version
                               'CurrentDatabase' = $row1.current_database
                            })
@@ -170,17 +206,17 @@ function Get-ServerProperties {
                         [void] $list.Add($obj)
                   } # 'PostgreSQL'
                   'SQL Server' {
-                     [int] $majorVersion = ([version] $Connection.ServerVersion).Major
+                     [int] $majorVersion = ([version] $da1.SelectCommand.Connection.ServerVersion).Major
                      [Data.DataRow[]] $rows1 = Get-Rows -DataAdapter $da1 -DataSet $ds1
                      $rows1 | % {
-                        [Data.DataRow] $row1 = $_
-                        [Object] $obj = New-Object -TypeName 'PSObject' -Property ([ordered]@{
+                        $row1 = $_
+                        $obj = New-Object -TypeName 'PSObject' -Property ([ordered]@{
                            'DBMS'                         = $dbms
-                           'DataSourceName'               = $Connection.DataSource.Split('.')[0]
+                           'DataSource'                   = $dataSource
                            'MajorVersion'                 = $majorVersion
-                           'ServerVersion'                = $Connection.ServerVersion
-#                           'PacketSize'                   = $Connection.PacketSize
-                           'CurrentDatabase'              = $Connection.Database
+                           'ServerVersion'                = $da1.SelectCommand.Connection.ServerVersion
+#                           'PacketSize'                   = $da1.SelectCommand.Connection.PacketSize
+                           'CurrentDatabase'              = $da1.SelectCommand.Connection.Database
                            'ServerName'                   = $row1.ServerName
                            'MachineName'                  = $row1.MachineName
                            'ComputerName'                 = $row1.ComputerNamePhysicalNetBIOS
@@ -228,13 +264,13 @@ function Get-ServerProperties {
                      [void] $list.Add($obj)
                   } # 'SQL Server'
                   'SQLite' {
-                     [string] $dataSource = Get-DataSourceNameOrAddress -InputObject $da1
+                     [string] $dataSource1 = Get-DataSourceNameOrAddress -InputObject $da1
                      [Data.DataRow[]] $rows1 = Get-Rows -DataAdapter $da1 -DataSet $ds1
                      $rows1 | % {
-                        [Data.DataRow] $row1 = $_
-                        [Object] $obj = New-Object -TypeName 'PSObject' -Property ([ordered]@{
+                        $row1 = $_
+                        $obj = New-Object -TypeName 'PSObject' -Property ([ordered]@{
                            'DBMS'                         = $dbms
-                           'DataSourceName'               = $dataSource.Split('.')[0]
+                           'DataSource'                   = $dataSource1
                            'seq'                          = $row1.seq
                            'name'                         = $row1.name
                            'file'                         = $row1.file
@@ -251,10 +287,12 @@ function Get-ServerProperties {
                   } # 'SQLite'
                   default {
                   # Error Message with location in this module
-                     [string[]] $msgs = , "DBMS '${dbms}' not recognized"
-                     [string] $functionAndScriptLocation = "in $($csf.FunctionName) at $($csf.ScriptName): $($csf.ScriptLineNumber)"
+                     [string[]] $msgs = @(
+                        "DBMS '${dbms}' not recognized"
+                        Get-CallStackFunctionAndLocation -CallStackCount $CallStackCount
+                     )
                      [string] $activity = "switch ('${dbms}')"
-                     Write-Error -Message (@( $msgs; $functionAndScriptLocation ) -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::NotImplemented) -CategoryReason 'Coding error in module!' -CategoryActivity $activity -CategoryTargetName $MyInvocation.MyCommand.Name -CategoryTargetType 'Module'
+                     Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::NotImplemented) -CategoryReason 'Coding error in module!' -CategoryActivity $activity -CategoryTargetName $MyInvocation.MyCommand.Name -CategoryTargetType 'Module'
                   } # default
                } # switch ($dbms) {
             } # Try
@@ -273,7 +311,7 @@ function Get-ServerProperties {
    End {
       $ds1.Dispose()
       [Data.DataSet] $ds1 = $null
-#      $list | Select-Object -Property 'DBMS', 'DataSourceName', 'MajorVersion', 'ServerVersion', 'CurrentDatabase', 'ServerName', 'MachineName', 'ComputerName', 'InstanceName', 'Vendor', 'Product', 'ProductLevel', 'ProductUpdateType', 'ProductUpdateLevel', 'ProductBuildType', 'ProductUpdateReference', 'ProductVersion', 'ProductMajorVersion', 'ProductMinorVersion', 'ProductBuild', 'Edition', 'EngineEdition', 'IsIntegratedSecurityOnly', 'IsExternalAuthenticationOnly', 'Collation', 'SqlCharSetName', 'SqlSortOrder', 'ComparisonStyle', 'IsLocalDB', 'IsClustered', 'IsHadrEnabled', 'InstanceDefaultDataPath', 'InstanceDefaultLogPath', 'InstanceDefaultBackupPath', 'IsSingleUser', 'PathSeparator', 'host_platform', 'host_release', 'host_distribution' | Write-Output
+#      $list | Select-Object -Property 'DBMS', 'DataSource'    , 'MajorVersion', 'ServerVersion', 'CurrentDatabase', 'ServerName', 'MachineName', 'ComputerName', 'InstanceName', 'Vendor', 'Product', 'ProductLevel', 'ProductUpdateType', 'ProductUpdateLevel', 'ProductBuildType', 'ProductUpdateReference', 'ProductVersion', 'ProductMajorVersion', 'ProductMinorVersion', 'ProductBuild', 'Edition', 'EngineEdition', 'IsIntegratedSecurityOnly', 'IsExternalAuthenticationOnly', 'Collation', 'SqlCharSetName', 'SqlSortOrder', 'ComparisonStyle', 'IsLocalDB', 'IsClustered', 'IsHadrEnabled', 'InstanceDefaultDataPath', 'InstanceDefaultLogPath', 'InstanceDefaultBackupPath', 'IsSingleUser', 'PathSeparator', 'host_platform', 'host_release', 'host_distribution' | Write-Output
       return $list
    }
 
@@ -293,10 +331,24 @@ function New-DataAdapterForDatabases {
       [int] $CommandTimeout = $Script:DefaultCommandTimeout,
       [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
       [AllowNull()]
-      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CallStackCount = -1
    )
 
    Begin {
+
+      if ($CallStackFrame -eq $NULL) {
+         $CallStackFrame = (gcs)[1]
+      }
+
+      if ($CallStackCount -eq -1) {
+         $CallStackCount = 2
+      }
+      else {
+         $CallStackCount += 1
+      }
+
    }
 
    Process {
@@ -338,8 +390,14 @@ function Get-Databases {
    )
 
    Begin {
+
       [Data.DataSet] $ds1 = New-DataSet
       [Collections.Generic.List[PSObject]] $list = New-Object -TypeName 'Collections.Generic.List[PSObject]'
+
+      [Data.DataRow] $row1
+      [Object] $obj
+         # to avoid "Cannot overwrite variable row1 because the variable has been optimized."
+
    }
    Process {
       [Data.Common.DbDataAdapter[]] $dataAdapters = New-DataAdapterForDatabases -Connection $Connection
@@ -347,20 +405,21 @@ function Get-Databases {
          [Data.Common.DataAdapter] $da1 = $_
          if ($da1 -ne $null) {
             [string] $dbms = Get-DBMS -InputObject $da1
+            [string] $dataSource = (Get-DataSourceNameOrAddress $da1).Split('.')[0]
             Try {
                [Management.Automation.CallStackFrame] $csf = (gcs)[0]; switch -Exact ($dbms) {
                   'SQL Server' {
-                     [int] $majorVersion = ([version] $Connection.ServerVersion).Major
+                     [int] $majorVersion = ([version] $da1.SelectCommand.Connection.ServerVersion).Major
                      [Data.DataRow[]] $rows1 = Get-Rows -DataAdapter $da1 -DataSet $ds1
                      if ($rows1.Count -eq 0) {
                         Write-Warning -Message "No rows returned from $($da1.SelectCommand.Connection.DataSource) `"$($da1.SelectCommand.CommandText)`""
                      }
                      $rows1 | % {
-                        [Data.DataRow] $row1 = $_
+                        $row1 = $_
                         [boolean] $isSystemDatabase = $row1.database_id -le 4
-                        [Object] $obj = New-Object -TypeName 'PSObject' -Property ([ordered]@{
+                        $obj = New-Object -TypeName 'PSObject' -Property ([ordered]@{
                            'DBMS'             = $dbms
-                           'DataSourceName'   = $Connection.DataSource.Split('.')[0]
+                           'DataSource'       = $dataSource
                            'DatabaseName'     = $row1.database_name
                            'IsSystemDatabase' = $isSystemDatabase
                            'State'            = $row1.State
@@ -371,10 +430,12 @@ function Get-Databases {
                   } # 'SQL Server'
                   default {
                   # Error Message with location in this module
-                     [string[]] $msgs = , "DBMS '${dbms}' not recognized"
-                     [string] $functionAndScriptLocation = "in $($csf.FunctionName) at $($csf.ScriptName): $($csf.ScriptLineNumber)"
+                     [string[]] $msgs = @(
+                        "DBMS '${dbms}' not recognized"
+                        Get-CallStackFunctionAndLocation -CallStackCount $CallStackCount
+                     )
                      [string] $activity = "switch ('${dbms}')"
-                     Write-Error -Message (@( $msgs; $functionAndScriptLocation ) -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::NotImplemented) -CategoryReason 'Coding error in module!' -CategoryActivity $activity -CategoryTargetName $MyInvocation.MyCommand.Name -CategoryTargetType 'Module'
+                     Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::NotImplemented) -CategoryReason 'Coding error in module!' -CategoryActivity $activity -CategoryTargetName $MyInvocation.MyCommand.Name -CategoryTargetType 'Module'
                   } # default
                } # switch ($dbms) {
             } # Try
@@ -412,10 +473,23 @@ function New-DataAdapterForServerPermissions {
       [int] $CommandTimeout = $Script:DefaultCommandTimeout,
       [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
       [AllowNull()]
-      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CallStackCount = -1
    )
 
    Begin {
+
+      if ($CallStackFrame -eq $NULL) {
+         $CallStackFrame = (gcs)[1]
+      }
+
+      if ($CallStackCount -eq -1) {
+         $CallStackCount = 2
+      }
+      else {
+         $CallStackCount += 1
+      }
 
       [Collections.Generic.List[Data.Common.DbDataAdapter]] $dataAdapterList = New-Object -TypeName 'Collections.Generic.List[Data.Common.DbDataAdapter]'
       [bool] $first = $true
@@ -426,16 +500,17 @@ function New-DataAdapterForServerPermissions {
 
    Process {
 
-      if ($first) {
-         $firstConnType = $Connection.GetType()
-         $first = $false
-      }
-      elseif ($Connection.GetType() -ne $firstConnType) {
-         $allConnectionsAreSameType = $false
-      }
-
       $Connection | % {
          [Data.Common.DbConnection] $conn = $_
+
+         if ($first) {
+            $firstConnType = $conn.GetType()
+            $first = $false
+         }
+         elseif ($conn.GetType() -ne $firstConnType) {
+            $allConnectionsAreSameType = $false
+         }
+
          [Management.Automation.CallStackFrame] $csf = (gcs)[0]; switch -Exact ($conn.GetType()) {
             'Npgsql.NpgsqlConnection' {
                New-DataAdapter -Connection $conn -CommandTimeout $Script:DefaultCommandTimeout -Query @'
@@ -708,10 +783,23 @@ function New-DataAdapterForDatabasePermissions {
       [int] $CommandTimeout = $Script:DefaultCommandTimeout,
       [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
       [AllowNull()]
-      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CallStackCount = -1
    )
 
    Begin {
+
+      if ($CallStackFrame -eq $NULL) {
+         $CallStackFrame = (gcs)[1]
+      }
+
+      if ($CallStackCount -eq -1) {
+         $CallStackCount = 2
+      }
+      else {
+         $CallStackCount += 1
+      }
 
       [Collections.Generic.List[Data.Common.DbDataAdapter]] $dataAdapterList = New-Object -TypeName 'Collections.Generic.List[Data.Common.DbDataAdapter]'
       [bool] $first = $true
@@ -722,16 +810,17 @@ function New-DataAdapterForDatabasePermissions {
 
    Process {
 
-      if ($first) {
-         $firstConnType = $Connection.GetType()
-         $first = $false
-      }
-      elseif ($Connection.GetType() -ne $firstConnType) {
-         $allConnectionsAreSameType = $false
-      }
-
       $Connection | % {
          [Data.Common.DbConnection] $conn = $_
+
+         if ($first) {
+            $firstConnType = $conn.GetType()
+            $first = $false
+         }
+         elseif ($conn.GetType() -ne $firstConnType) {
+            $allConnectionsAreSameType = $false
+         }
+
          [Management.Automation.CallStackFrame] $csf = (gcs)[0]; switch -Exact ($conn.GetType()) {
             'Npgsql.NpgsqlConnection' {
                New-DataAdapter -Connection $conn -CommandTimeout $Script:DefaultCommandTimeout -Query @'

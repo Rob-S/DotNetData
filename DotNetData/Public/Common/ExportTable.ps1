@@ -1,6 +1,7 @@
 ﻿<# DotNetData/Public/Common/ExportTable.ps1
 #>
 
+
 function Export-Table {
    [CmdletBinding(PositionalBinding = $false)]
    [OutputType([Data.DataRowCollection])]

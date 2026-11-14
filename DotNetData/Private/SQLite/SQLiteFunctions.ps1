@@ -1,4 +1,7 @@
-﻿
+﻿<# DotNetData/Private/SQLite/SQLiteFunctions.ps1
+#>
+
+
 #[int] $Script:DefaultCommandTimeout = 300 # default is 30
 
 function Initialize-SQLiteConnectionStringBuilder {

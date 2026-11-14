@@ -1,3 +1,6 @@
+<# DotNetData/Examples/Test-PostgreSQL.ps1
+#>
+
 
 Clear-Host
 

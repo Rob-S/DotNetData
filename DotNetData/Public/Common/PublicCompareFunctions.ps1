@@ -1,4 +1,4 @@
-﻿<# PublicCompareFunctions.ps1
+﻿<# DotNetData/Public/Common/PublicCompareFunctions.ps1
 #>
 
 
@@ -20,10 +20,19 @@ function Compare-ServerPermissions {
       [int] $CommandTimeout = $Script:LongCommandTimeout,
       [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
       [AllowNull()]
-      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CallStackCount = -1
    )
 
    Begin {
+
+      if ($CallStackCount -eq -1) {
+         $CallStackCount = 2
+      }
+      else {
+         $CallStackCount += 1
+      }
 
       [Collections.Generic.List[Data.Common.DbConnection]] $dbConnList = New-Object -TypeName 'Collections.Generic.List[Data.Common.DbConnection]'
 
@@ -341,10 +350,19 @@ function Compare-DatabasePermissions {
       [int] $CommandTimeout = $Script:LongCommandTimeout,
       [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
       [AllowNull()]
-      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CallStackCount = -1
    )
 
    Begin {
+
+      if ($CallStackCount -eq -1) {
+         $CallStackCount = 2
+      }
+      else {
+         $CallStackCount += 1
+      }
 
       [Collections.Generic.List[Data.Common.DbConnection]] $dbConnList = New-Object -TypeName 'Collections.Generic.List[Data.Common.DbConnection]'
 

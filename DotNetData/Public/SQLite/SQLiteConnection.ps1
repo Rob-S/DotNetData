@@ -1,4 +1,4 @@
-<# Public/SQLite/SQLiteConnection.ps1
+<# DotNetData/Public/SQLite/SQLiteConnection.ps1
 
 Uses System.Data.SQLite for Desktop / Legacy, Microsoft.Data.Sqlite for Core
 
@@ -97,6 +97,7 @@ IsSynchronized:            False
 
 #>
 
+
 [Boolean] $Script:firstSQLiteConn = $true
 
 [Data.Common.DbConnectionStringBuilder] $Script:slcsb1 = $NULL
@@ -147,13 +148,22 @@ function New-SQLiteConnection {
       [Switch] $ReadOnly,
       [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
       [AllowNull()]
-      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CallStackCount = -1
    )
 
    Begin {
 
       if ($CallStackFrame -eq $NULL) {
          [Management.Automation.CallStackFrame] $CallStackFrame = (gcs)[1]
+      }
+
+      if ($CallStackCount -eq -1) {
+         $CallStackCount = 2
+      }
+      else {
+         $CallStackCount += 1
       }
 
       [bool] $ok = Test-SQLite
@@ -167,7 +177,7 @@ function New-SQLiteConnection {
       Initialize-SQLiteConnectionStringBuilder -ConnectionStringBuilder $Script:slcsb1
 #      Initialize-MicrosoftSqliteConnectionStringBuilder -ConnectionStringBuilder $Script:slcsb2
 
-         [Management.Automation.CallStackFrame] $csf = (gcs)[0]; switch -Exact ($PSCmdlet.ParameterSetName) {
+         [Management.Automation.CallStackFrame] $csf0 = (gcs)[0]; switch -Exact ($PSCmdlet.ParameterSetName) {
 
          'ReadWriteCreate' {
 #            $Script:slcsb1['ReadOnly'] = $false
@@ -183,19 +193,19 @@ function New-SQLiteConnection {
 
          default {
          # Error Message with location in this module
-            [String[]] $msgs = , "Unrecognized ParameterSetName '$($PSCmdlet.ParameterSetName)'"
-            [String] $functionAndScriptLocation = "in $($csf.FunctionName) at $($csf.ScriptName): $($csf.ScriptLineNumber)"
+            [String[]] $msgs = @(
+               "ParameterSetName '$($PSCmdlet.ParameterSetName)' not recognized"
+               Get-CallStackFunctionAndLocation -CallStackFrame $csf0 -CallStackCount $CallStackCount
+            )
             [String] $activity = "switch ('$($PSCmdlet.ParameterSetName)')"
-            Write-Error -Message (@( $msgs; $functionAndScriptLocation ) -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::NotImplemented) -CategoryReason 'Coding error in module!' -CategoryActivity $activity -CategoryTargetName $MyInvocation.MyCommand.Name -CategoryTargetType 'Module'
+            Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::NotImplemented) -CategoryReason 'Coding error in module!' -CategoryActivity $activity -CategoryTargetName $MyInvocation.MyCommand.Name -CategoryTargetType 'Module'
          }
 
       }
 
-      [Management.Automation.ErrorRecord] $er1 = $null
+      [Management.Automation.ErrorRecord] $er = $null
       [string] $activity = [NullString]::Value
       [string[]] $msgs = [string[]]::new(0)
-      [string] $functionAndScriptLocation = [NullString]::Value
-         # to avoid: Cannot overwrite variable ... because the variable has been optimized.
 
    } # Begin
 
@@ -203,59 +213,82 @@ function New-SQLiteConnection {
 
    # When $DataSource is from "-DataSource" parameter, each item in [String[]] $DataSource list is processed separately
    # for each item, return a single connection for just one name in $queue (vs. adding all $DataSource items to $queue at once)
-      $DataSource | % {
-         [String] $aDataSource = $_
 
-         $Script:slcsb1['DataSource'] = $aDataSource
+      foreach ($aDataSource in $DataSource) {
 
-         [String] $connstr = $Script:slcsb1.ToString()
+         if ($Script:slcsb1 -eq $null) {
+            Write-Output -InputObject ([Data.Common.DbConnection] $null)
+         } # if ($Script:slcsb1 -eq $null)
+         else { # $Script:slcsb1 -ne $null
 
-         [Management.Automation.CallStackFrame] $csfTryCatchLine = (gcs)[0]; try {
-            
-            [int] $gec = $Global:Error.Count
-            [System.Data.SQLite.SQLiteConnection] $conn = New-Object -TypeName 'System.Data.SQLite.SQLiteConnection' ($connstr)
+            $Script:slcsb1['DataSource'] = $aDataSource
 
-         } # try
-         catch [System.TypeInitializationException] {
-            [Management.Automation.ErrorRecord] $er1 = $_
-            Write-Error -ErrorRecord $er1 -CategoryActivity $er1.CategoryInfo.Activity -CategoryTargetName $er1.CategoryInfo.TargetName -CategoryTargetType $er1.CategoryInfo.TargetType
-            $functionAndScriptLocation = "in $($csfTryCatchLine.FunctionName) at $($csfTryCatchLine.ScriptName): $($csfTryCatchLine.ScriptLineNumber)"
-            [String[]] $msgs = , "New-Object -TypeName 'System.Data.SQLite.SQLiteConnection' ($connstr)"
-            Write-Error -Exception $er1.Exception -Message (@( $msgs; $functionAndScriptLocation ) -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::ConnectionError) -ErrorId 'ErrorId' -TargetObject $connstr -RecommendedAction 'RecommendedAction' -CategoryActivity 'CategoryActivity' -CategoryReason 'CategoryReason' -CategoryTargetName 'CategoryTargetName' -CategoryTargetType 'CategoryTargetType'
-            [String[]] $msgs = 'Exception.InnerException', $er1.Exception.InnerException
-            Write-Error -Exception $er1.Exception.InnerException -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::ConnectionError) -ErrorId 'ErrorId' -TargetObject $connstr -RecommendedAction 'RecommendedAction' -CategoryActivity 'CategoryActivity' -CategoryReason 'CategoryReason' -CategoryTargetName 'CategoryTargetName' -CategoryTargetType 'CategoryTargetType'
-            return $null
-         }
-         catch {
-            [Management.Automation.ErrorRecord] $er1 = $_
-            $functionAndScriptLocation = "in $($csfTryCatchLine.FunctionName) at $($csfTryCatchLine.ScriptName): $($csfTryCatchLine.ScriptLineNumber)"
-            Write-Error -ErrorRecord $er1 -CategoryActivity $er1.CategoryInfo.Activity -CategoryTargetName $er1.CategoryInfo.TargetName -CategoryTargetType $er1.CategoryInfo.TargetType
-            return $null
-         } # catch
+            [String] $connstr = $Script:slcsb1.ToString()
 
-         try {
-            $conn.Open()
-            if ($conn.State -ne 'Open') {
-               [String[]] $msgs = "conn.Open() with Data Source=${aDataSource}", "Connection.Type             = $($conn.GetType().FullName)", "Connection.State            = $($conn.State)", "Connection.DataSource       = $($conn.DataSource)", "Connection.Database         = $($conn.Database)", "Connection.ConnectionString = $($conn.ConnectionString)"
-               Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::OpenError) -CategoryReason 'SQLiteConnection.Open failed' -CategoryTargetName $aDataSource -CategoryTargetType 'DataSource'
+            [Management.Automation.CallStackFrame] $csfTry = (gcs)[0]; try {
+
+               [int] $gec = $Global:Error.Count
+               [System.Data.SQLite.SQLiteConnection] $conn = New-Object -TypeName 'System.Data.SQLite.SQLiteConnection' ($connstr)
+
+            } # try
+            catch [System.TypeInitializationException] {
+               [Management.Automation.ErrorRecord] $er = $_
+               [String[]] $msgs = @(
+                  "New-Object -TypeName 'System.Data.SQLite.SQLiteConnection' ($connstr)"
+                  "Exception.InnerException: $($er.Exception.InnerException)"
+                  Get-CallStackFunctionAndLocation -CallStackFrame $csfTry -CallStackCount $CallStackCount
+               )
+               Write-Error -Exception $er.Exception.InnerException -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::ConnectionError) -ErrorId 'ErrorId' -TargetObject $connstr -RecommendedAction 'RecommendedAction' -CategoryActivity 'CategoryActivity' -CategoryReason 'CategoryReason' -CategoryTargetName 'CategoryTargetName' -CategoryTargetType 'CategoryTargetType'
+               Write-Error -ErrorRecord $er -CategoryActivity $er.CategoryInfo.Activity -CategoryTargetName $er.CategoryInfo.TargetName -CategoryTargetType $er.CategoryInfo.TargetType
+               return $null
             }
-         } # try
-         catch {
-            [Management.Automation.ErrorRecord] $er1 = $_
-            $activity = '[System.Data.SQLite.SQLiteConnection].Open'
-            [string] $dataSource1 = Get-DataSourceNameOrAddress -InputObject $conn
-            $msgs = "[System.Data.SQLite.SQLiteConnection].Open() threw an error", "DataSource: ${dataSource1}"
-            [Management.Automation.CallStackFrame] $csf2 = (gcs)[2]
-               # (gcs)[1] is % $DataSource above
-            $functionAndScriptLocation = "in $($csf2.FunctionName) at $($csf2.ScriptName): $($csf2.ScriptLineNumber)"
-            Write-Warning -Message (@( $msgs; $functionAndScriptLocation ) -join "$([Environment]::NewLine)         ")
-            Write-Error -ErrorRecord $er1 -CategoryActivity $er1.CategoryInfo.Activity -CategoryTargetName $er1.CategoryInfo.TargetName -CategoryTargetType $er1.CategoryInfo.TargetType
-         } # catch
+            catch {
+               [Management.Automation.ErrorRecord] $er = $_
+               [String[]] $msgs = @(
+                  "New-Object -TypeName 'System.Data.SQLite.SQLiteConnection' ($connstr)"
+                  "Exception.InnerException: $($er.Exception.InnerException)"
+                  Get-CallStackFunctionAndLocation -CallStackFrame $csfTry -CallStackCount $CallStackCount
+               )
+               Write-Warning -Message ($msgs -join "$([Environment]::NewLine)         ")
+               Write-Error -ErrorRecord $er -CategoryActivity $er.CategoryInfo.Activity -CategoryTargetName $er.CategoryInfo.TargetName -CategoryTargetType $er.CategoryInfo.TargetType
+               return $null
+            } # catch
 
-      # Return the Connection regardless of State 'Open' or not
-         Write-Output -InputObject $conn
+            try {
+               $conn.Open()
+               if ($conn.State -ne 'Open') {
+                  [String[]] $msgs = @(
+                     "conn.Open() with Data Source=${aDataSource}"
+                     "Connection.Type             = $($conn.GetType().FullName)"
+                     "Connection.State            = $($conn.State)"
+                     "Connection.DataSource       = $($conn.DataSource)"
+                     "Connection.Database         = $($conn.Database)"
+                     "Connection.ConnectionString = $($conn.ConnectionString)"
+                     Get-CallStackFunctionAndLocation -CallStackFrame $csf0 -CallStackCount $CallStackCount
+                  )
+                  Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::OpenError) -CategoryReason 'SQLiteConnection.Open failed' -CategoryTargetName $aDataSource -CategoryTargetType 'DataSource'
+               }
+            } # try
+            catch {
+               [Management.Automation.ErrorRecord] $er = $_
+               $msgs = @(
+                  "[System.Data.SQLite.SQLiteConnection].Open() threw an error"
+                  "DataSource: ${aDataSource}"
+                  Get-CallStackFunctionAndLocation -CallStackCount $CallStackCount
+               )
+               [Management.Automation.CallStackFrame] $csf2 = (gcs)[2]
+                  # (gcs)[1] is % $DataSource above
+               Write-Warning -Message ($msgs -join "$([Environment]::NewLine)         ")
+               Write-Error -ErrorRecord $er -CategoryActivity $er.CategoryInfo.Activity -CategoryTargetName $er.CategoryInfo.TargetName -CategoryTargetType $er.CategoryInfo.TargetType
+            } # catch
 
-      } # % $DataSource
+         # Return the Connection regardless of State 'Open' or not
+
+            Write-Output -InputObject $conn
+
+         } # else ($Script:slcsb1 -ne $null)
+
+      } # foreach ($aDataSource in $DataSource)
 
    } # Process
 

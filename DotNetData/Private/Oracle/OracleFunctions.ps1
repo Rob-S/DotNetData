@@ -1,5 +1,6 @@
-<# Private/Oracle/OracleFunctions.ps1
+<# DotNetData/Private/Oracle/OracleFunctions.ps1
 #>
+
 
 function Initialize-OracleConnectionStringBuilder {
    [CmdletBinding(PositionalBinding = $false)]

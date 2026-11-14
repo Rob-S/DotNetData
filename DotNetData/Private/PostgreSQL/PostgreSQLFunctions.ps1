@@ -1,10 +1,11 @@
-﻿<#
+﻿<# DotNetData/Private/PostgreSQL/PostgreSQLFunctions.ps1
 
 # IMPL: PostgreSQL Providers classes:
 # Open Source: [Npgsql.NpgsqlConnectionStringBuilder]
 # Commercial:  [Devart.Data.PostgreSql.PgSqlConnectionStringBuilder], [Devart.Data.PostgreSql.PgSqlConnection]
 
 #>
+
 
 function Initialize-PostgreSqlConnectionStringBuilder {
    [CmdletBinding(PositionalBinding = $false)]

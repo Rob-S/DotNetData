@@ -1,4 +1,7 @@
-﻿
+﻿<# DotNetData/Private/MySQL/MySQLFunctions.ps1
+#>
+
+
 function Initialize-MySqlConnectionStringBuilder {
    [CmdletBinding(PositionalBinding = $false)]
    [OutputType([Data.Common.DbConnection[]])]

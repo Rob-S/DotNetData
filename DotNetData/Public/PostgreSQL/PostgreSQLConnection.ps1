@@ -1,4 +1,4 @@
-﻿<# PostgreSQLConnection.ps1
+﻿<# DotNetData/Public/PostgreSQL/PostgreSQLConnection.ps1
 
 Requires System.Threading.Tasks.Extensions 4.2.0.0
 else Open() throws error:
@@ -9,6 +9,7 @@ Use Npgsql 4.0.12
 Install-Package -Name 'Npgsql' -RequiredVersion '4.0.12' -Source 'nuget.org' -Scope 'AllUsers'
 
 #>
+
 
 [Boolean] $Script:firstPostgreSQLConn = $true
 
@@ -31,10 +32,19 @@ function New-PostgreSqlConnection {
       [String] $DatabaseName = 'postgres',
       [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
       [AllowNull()]
-      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CallStackCount = -1
    )
 
    Begin {
+
+      if ($CallStackCount -eq -1) {
+         $CallStackCount = 2
+      }
+      else {
+         $CallStackCount += 1
+      }
 
       if ($Script:firstPostgreSQLConn) {
          $Script:firstPostgreSQLConn = $false
@@ -84,8 +94,8 @@ Add-Type -Path (Join-Path $DllDir "Npgsql.dll")
    Process {
 
    # When $Server is from "-Server" parameter, each item in [String[]] $Server list is processed separately
-      $Server | % {
-         [String] $aServer = $_
+
+      foreach ($aServer in $Server) {
 
          if ($aServer -eq $null) {
             Write-Warning -Message 'An item in the $Server array should not be null'
@@ -93,56 +103,90 @@ Add-Type -Path (Join-Path $DllDir "Npgsql.dll")
             return
          }
 
-         Initialize-PostgreSqlConnectionStringBuilder -ConnectionStringBuilder $Script:pgcsb
+         if ($Script:pgcsb -eq $null) {
+            Write-Output -InputObject ([Data.Common.DbConnection] $null)
+         } # if ($Script:pgcsb -eq $null)
+         else { # $Script:pgcsb -ne $null
 
-         $Script:pgcsb['Server'] = $aServer
+            Initialize-PostgreSqlConnectionStringBuilder -ConnectionStringBuilder $Script:pgcsb
 
-      # For Redshift, the default port is 5439 rather than 5432; ServerCompatibilityMode ensures the driver handles Redshift's older underlying system tables smoothly
+            $Script:pgcsb['Host'] = $aServer
+               # 'Host' preferred vs. 'Server'
+               # In C#: NpgsqlConnectionStringBuilder only exposes .Host as a strongly-typed property.
+               #    Trying to access builder.Server directly in C# code will cause an error
+               #    unless you use the string indexer (builder["Server"] = "...")
 
-         if ($Redshift) {
-            if ($Port -lt 0) {
-               $Script:pgcsb['Port'] = 5439
+         # For Redshift, the default port is 5439 rather than 5432; ServerCompatibilityMode ensures the driver handles Redshift's older underlying system tables smoothly
+
+            if ($Redshift) {
+               if ($Port -lt 0) {
+                  $Script:pgcsb['Port'] = 5439
+               }
+               elseif ($Port -eq 5432) {
+                  Write-Warning -Message "The default port for Redshift should be 5439 rather than PostgreSQL 5432."
+               }
+               $Script:pgcsb['ServerCompatibilityMode'] = [Npgsql.ServerCompatibilityMode]::Redshift
             }
-            elseif ($Port -eq 5432) {
-               Write-Warning -Message "The default port for Redshift should be 5439 rather than PostgreSQL 5432."
+            elseif ($Port -ge 0) {
+               $Script:pgcsb['Port'] = $Port
             }
-            $Script:pgcsb['ServerCompatibilityMode'] = [Npgsql.ServerCompatibilityMode]::Redshift
-         }
-         elseif ($Port -ge 0) {
-            $Script:pgcsb['Port'] = $Port
-         }
-         
-         $Script:pgcsb['Database'] = $DatabaseName
-         $Script:pgcsb['UserId'] = $UserName
-         [Management.Automation.PSCredential] $Credential = Get-CredentialForUserName -UserName $UserName -Server $aServer -CallStackFrame $CallStackFrame
-         if ($Credential -eq $NULL) {
-            return $null
-         }
-         $Script:pgcsb['UserId'] = $Credential.UserName
-         $Script:pgcsb['Password'] = $Credential.GetNetworkCredential().Password
 
-         [string] $connstr = $Script:pgcsb.ToString()
+            $Script:pgcsb['Database'] = $DatabaseName
 
-      # Connect to PostgreSQL instance
+            $Script:pgcsb['Database'] = $DatabaseName
 
-         [Npgsql.NpgsqlConnection] $conn = New-Object -TypeName 'Npgsql.NpgsqlConnection' ($connstr)
-
-         Try {
-            $conn.Open()
-            if ($conn.State -ne 'Open') {
-               [String[]] $msgs = "conn.Open() with Server=${aServer}", "$($MyInvocation.MyCommand.Name): Connection.State            = $($conn.State)", "Connection.DataSource       = $($conn.DataSource)", "Connection.Database         = $($conn.Database)", "Connection.ConnectionString = $($conn.ConnectionString)"
-               Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::OpenError) -CategoryReason 'MySqlConnection.Open failed' -CategoryActivity $($MyInvocation.MyCommand.Name) -CategoryTargetName $aServer -CategoryTargetType 'Server'
+            [Management.Automation.PSCredential] $Credential = Get-CredentialForUserName -UserName $UserName -Server $aServer -CallStackFrame $CallStackFrame
+            if ($Credential -eq $NULL) {
+               return $null
             }
-         }
-         Catch {
-            [Management.Automation.ErrorRecord] $er = $_
-            Write-Error -ErrorRecord $er -CategoryActivity $($MyInvocation.MyCommand.Name) -CategoryTargetName $aServer -CategoryTargetType 'Server'
-         }
+            $Script:pgcsb['UserName'] = $Credential.UserName
+               # 'Username' preferred vs. 'UserId'
+               # In C#: NpgsqlConnectionStringBuilder only exposes .Username as a strongly-typed C# property.
+               #    Trying to access builder.UserId directly in C# code will cause an error
+               #    unless you use the string indexer (builder["UserId"] = "...";)
+            $Script:pgcsb['Password'] = $Credential.GetNetworkCredential().Password
 
-      # Return the Connection regardless of State 'Open' or not
-         Write-Output -InputObject $conn
+            $Script:pgcsb['SslMode'] = [Npgsql.SslMode]::Require
+            $Script:pgcsb['TrustServerCertificate'] = $true 
 
-      } # % $Server
+            [string] $connstr = $Script:pgcsb.ToString()
+
+         # Connect to PostgreSQL instance
+
+            [Npgsql.NpgsqlConnection] $conn = New-Object -TypeName 'Npgsql.NpgsqlConnection' ($connstr)
+
+            [Management.Automation.CallStackFrame] $csfTry = (gcs)[0]; Try {
+               [Management.Automation.CallStackFrame] $csf0 = (gcs)[0]; $conn.Open()
+               if ($conn.State -ne 'Open') {
+                  [String[]] $msgs = @(
+                     "conn.Open() with Server=${aServer}"
+                     "Connection.Type             = $($conn.GetType().FullName)"
+                     "Connection.State            = $($conn.State)"
+                     "Connection.DataSource       = $($conn.DataSource)"
+                     "Connection.Database         = $($conn.Database)"
+                     "Connection.ConnectionString = $($conn.ConnectionString)"
+                     Get-CallStackFunctionAndLocation -CallStackFrame $csf0 -CallStackCount $CallStackCount
+                  )
+                  Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::OpenError) -CategoryReason 'MySqlConnection.Open failed' -CategoryActivity $($MyInvocation.MyCommand.Name) -CategoryTargetName $aServer -CategoryTargetType 'Server'
+               }
+            }
+            Catch {
+               [Management.Automation.ErrorRecord] $er = $_
+               $msgs = @(
+                  "[Npgsql.NpgsqlConnection].Open() threw an error", "Server: ${aServer}"
+                  Get-CallStackFunctionAndLocation -CallStackFrame $csfTry -CallStackCount $CallStackCount
+               )
+               Write-Warning -Message ($msgs -join "$([Environment]::NewLine)         ")
+               Write-Error -ErrorRecord $er -CategoryActivity $er.CategoryInfo.Activity -CategoryTargetName $er.CategoryInfo.TargetName -CategoryTargetType $er.CategoryInfo.TargetType
+            }
+
+         # Return the Connection regardless of State 'Open' or not
+
+            Write-Output -InputObject $conn
+
+         } # else ($Script:pgcsb -ne $null)
+
+      } # foreach ($aServer in $Server)
 
    } # Process
 

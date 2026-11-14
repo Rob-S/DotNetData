@@ -1,4 +1,7 @@
-﻿
+﻿<# DotNetData/Private/MariaDB/MariaDBFunctions.ps1
+#>
+
+
 function Initialize-MariaDBConnectionStringBuilder {
    [CmdletBinding(PositionalBinding = $false)]
    [OutputType([Data.Common.DbConnection[]])]

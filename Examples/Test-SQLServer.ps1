@@ -1,3 +1,6 @@
+<# DotNetData/Examples/Test-SQLServer.ps1
+#>
+
 
 Clear-Host
 

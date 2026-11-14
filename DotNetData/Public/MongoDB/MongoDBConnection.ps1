@@ -1,7 +1,10 @@
+<# DotNetData/Public/MongoDB/MongoDBConnection.ps1
+#>
+
 
 [Boolean] $Script:firstMongoDBConn = $true
 
-$Script:mycsb = $NULL
+$Script:mdcsb = $NULL
 
 #[int] $Script:DefaultCommandTimeout = 300 # default is 30
 
@@ -20,7 +23,9 @@ function New-MongoDBConnection {
       [String] $DatabaseName = 'MongoDB',
       [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
       [AllowNull()]
-      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL
+      [Management.Automation.CallStackFrame] $CallStackFrame = $NULL,
+      [Parameter(Mandatory = $false, ValueFromPipeline = $false)]
+      [int] $CallStackCount = -1
    )
 
    Begin {
@@ -30,6 +35,13 @@ function New-MongoDBConnection {
 
       if ($CallStackFrame -eq $NULL) {
          [Management.Automation.CallStackFrame] $CallStackFrame = (gcs)[1]
+      }
+
+      if ($CallStackCount -eq -1) {
+         $CallStackCount = 2
+      }
+      else {
+         $CallStackCount += 1
       }
 
    # Load MongoDB.Data.dll
@@ -52,8 +64,8 @@ function New-MongoDBConnection {
 
    # Initialize script variable - ConnectionStringBuilder
 
-      if ($Script:mycsb -eq $NULL) {
-         [MongoDB.Data.MongoDBClient.MongoDBConnectionStringBuilder] $Script:mycsb = New-Object -TypeName 'MongoDB.Data.MongoDBClient.MongoDBConnectionStringBuilder'
+      if ($Script:mdcsb -eq $NULL) {
+         [MongoDB.Data.MongoDBClient.MongoDBConnectionStringBuilder] $Script:mdcsb = New-Object -TypeName 'MongoDB.Data.MongoDBClient.MongoDBConnectionStringBuilder'
       }
 
    }
@@ -62,25 +74,31 @@ function New-MongoDBConnection {
 
    # When $Server is from "-Server" parameter, each item in [String[]] $Server list is processed separately
    # for each item, return a single connection for just one name in $queue (vs. adding all $Server items to $queue at once)
-      $Server | % {
-         [String] $aServer = $_
 
-         Initialize-MongoDBConnectionStringBuilder -ConnectionStringBuilder $Script:mycsb
-         $Script:mycsb['Server'] = $Server
-         if ($Port -ge 0) {
-            $Script:mycsb['Port'] = $Port
-         }
-         $Script:mycsb['Database'] = $DatabaseName
-         $Script:mycsb['UserID'] = $UserName
-         [Management.Automation.PSCredential] $Credential = Get-CredentialForUserName -UserName $UserName -Server $aServer -CallStackFrame $CallStackFrame
-         if ($Credential -eq $NULL) {
-            return $null
-         }
-         $Script:mycsb['UserID'] = $Credential.UserName
-         $Script:mycsb['Password'] = $Credential.GetNetworkCredential().Password
-         [string] $connstr = $Script:mycsb.ToString()
+      foreach ($aServer in $Server) {
 
-      # Connect to MongoDB instance
+         if ($Script:mdcsb -eq $null) {
+            Write-Output -InputObject ([Data.Common.DbConnection] $null)
+         } # if ($Script:mdcsb -eq $null)
+         else { # $Script:mdcsb -ne $null
+
+            Initialize-MongoDBConnectionStringBuilder -ConnectionStringBuilder $Script:mdcsb
+
+            $Script:mdcsb['Server'] = $Server
+            if ($Port -ge 0) {
+               $Script:mdcsb['Port'] = $Port
+            }
+            $Script:mdcsb['Database'] = $DatabaseName
+            $Script:mdcsb['UserID'] = $UserName
+            [Management.Automation.PSCredential] $Credential = Get-CredentialForUserName -UserName $UserName -Server $aServer -CallStackFrame $CallStackFrame
+            if ($Credential -eq $NULL) {
+               return $null
+            }
+            $Script:mdcsb['UserID'] = $Credential.UserName
+            $Script:mdcsb['Password'] = $Credential.GetNetworkCredential().Password
+            [string] $connstr = $Script:mdcsb.ToString()
+
+         # Connect to MongoDB instance
 
             [MongoDB.Data.MongoDBClient.MongoDBConnection] $conn = New-Object -TypeName 'MongoDB.Data.MongoDBClient.MongoDBConnection' ($connstr)
 
@@ -88,8 +106,15 @@ function New-MongoDBConnection {
             Try {
                $conn.Open()
                if ($conn.State -ne 'Open') {
-                  [String[]] $msgs = "$($MyInvocation.MyCommand.Name): conn.Open() with Data Source=${server}", "$($MyInvocation.MyCommand.Name): Connection.State            = $($conn.State)", "Connection.DataSource       = $($conn.DataSource)", "Connection.Database         = $($conn.Database)", "Connection.ConnectionString = $($conn.ConnectionString)"
-                  Write-Error -Message ($msgs -join [Environment]::NewLine) -Category ([Management.Automation.ErrorCategory]::ConnectionError) -CategoryReason 'MongoDBConnection.Open failed' -CategoryTargetName $server -CategoryTargetType 'Server'
+                  [String[]] $msgs = @(
+                     "$($MyInvocation.MyCommand.Name): conn.Open() with Data Source=${server}"
+                     "Connection.Type             = $($conn.GetType().FullName)"
+                     "Connection.State            = $($conn.State)"
+                     "Connection.DataSource       = $($conn.DataSource)"
+                     "Connection.Database         = $($conn.Database)"
+                     "Connection.ConnectionString = $($conn.ConnectionString)"
+                  )
+                  Write-Error -Message ($msgs -join "$([Environment]::NewLine)         ") -Category ([Management.Automation.ErrorCategory]::ConnectionError) -CategoryReason 'MongoDBConnection.Open failed' -CategoryTargetName $server -CategoryTargetType 'Server'
                }
             }
             Catch {
@@ -98,9 +123,12 @@ function New-MongoDBConnection {
             }
 
          # Return the Connection regardless of State 'Open' or not
+
             Write-Output -InputObject $conn
 
-      } # % $Server
+         } # else ($Script:mdcsb -ne $null)
+
+      } # foreach ($aServer in $Server)
 
    } # Process
 

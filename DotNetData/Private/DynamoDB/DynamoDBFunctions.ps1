@@ -1,4 +1,7 @@
-﻿
+﻿<# DotNetData/Private/DynamoDB/DynamoDBFunctions.ps1
+#>
+
+
 function Initialize-DynamoDBConnectionStringBuilder {
    [CmdletBinding(PositionalBinding = $false)]
    [OutputType([Data.Common.DbConnection[]])]

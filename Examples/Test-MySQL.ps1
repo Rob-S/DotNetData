@@ -1,3 +1,6 @@
+<# DotNetData/Examples/Test-MySQL.ps1
+#>
+
 
 Clear-Host
 
